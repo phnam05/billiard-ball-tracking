@@ -1,0 +1,12 @@
+sense = 10
+cue ball:
+# lower_bound = np.array([40, 20, 220])
+# upper_bound = np.array([45, 25, 233])
+
+blue ball:
+lower_bound = np.array([110, 125, 185])  -sense# Lower bound for HSV color
+upper_bound = np.array([130, 155, 215])  +sense# Upper bound for HSV color
+
+pink ball:
+lower_bound = np.array([160, 50, 230])  -sense# Lower bound for HSV color PINK
+upper_bound = np.array([180, 100, 240])  +sense# Upper bound for HSV color PINK
