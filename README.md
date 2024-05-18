@@ -12,5 +12,6 @@ professional growth by showcasing my technical skills and innovative capabilitie
 technology.
 
 This project is a personal Final Project for the course ENG 301 – Computer Vision at Fulbright University Vietnam - Spring 2024 Semester
-!([Fedor Gorst shooting](https://github.com/phnam05/billiard-ball-tracking/blob/main/Screenshot%202024-05-19%20000413.png))
+
+![gorst](https://github.com/phnam05/billiard-ball-tracking/assets/96247259/a84f2cf8-edcf-4fde-abe2-a6204b47cb77)
 
