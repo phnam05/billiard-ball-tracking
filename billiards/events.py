@@ -25,6 +25,11 @@ from .geometry import TableModel
 from .track import Track, TrackState
 
 
+#: Frames a track must have existed before its speed is trusted enough to say
+#: it was struck.  The filter starts with a wide velocity prior by design.
+_MIN_AGE_FOR_STRUCK = 8
+
+
 class EventType(Enum):
     COLLISION = "collision"
     CUSHION = "cushion"
@@ -57,26 +62,27 @@ class Event:
 
 
 class EventDetector:
-    def __init__(self, cfg: Config, table: TableModel) -> None:
+    def __init__(self, cfg: Config, table: TableModel, fps: float = 30.0) -> None:
         self.cfg = cfg
         self.table = table
+        self.fps = max(float(fps), 1.0)
         self.events: List[Event] = []
         self._last_pair_event: Dict[frozenset, float] = {}
         self._last_cushion: Dict[int, float] = {}
         self._prev_velocity: Dict[int, np.ndarray] = {}
-        self._was_moving: Dict[int, bool] = {}
+        #: Per-track motion state, "rest" or "moving".  Not a plain boolean:
+        #: see _balls_struck for why it needs a hysteresis band.
+        self._motion_state: Dict[int, str] = {}
 
     @property
-    def _shot_speed(self) -> float:
-        """Speed at which a ball counts as having been struck.
-
-        The *same* number has to serve both as the event threshold and as the
-        state remembered between frames.  Using a lower one for the state (the
-        stationary cut-off) let a ball accelerating through the gap set
-        "already moving" on its way up, so the strike itself was never reported
-        -- which is why a clip containing five pots produced zero shots.
-        """
+    def _struck_speed(self) -> float:
+        """Speed above which a ball is definitely moving under its own steam."""
         return max(self.cfg.tracker.stationary_speed_in_s * 6.0, 12.0)
+
+    @property
+    def _rest_speed(self) -> float:
+        """Speed below which a ball is definitely at rest."""
+        return self.cfg.tracker.stationary_speed_in_s
 
     # -- public ------------------------------------------------------------
 
@@ -91,7 +97,6 @@ class EventDetector:
 
         for track in confirmed:
             self._prev_velocity[track.track_id] = track.velocity.copy()
-            self._was_moving[track.track_id] = track.speed > self._shot_speed
 
         self.events.extend(new)
         return new
@@ -164,7 +169,7 @@ class EventDetector:
         self, tracks: Sequence[Track], frame: int, t_s: float
     ) -> List[Event]:
         cfg = self.cfg.events
-        proximity = cfg.cushion_proximity_ball_radii * self.table.ball_radius_in
+        base_proximity = cfg.cushion_proximity_ball_radii * self.table.ball_radius_in
         out: List[Event] = []
 
         for track in tracks:
@@ -174,6 +179,14 @@ class EventDetector:
             vel = track.velocity
             if float(np.linalg.norm(vel - prev)) < cfg.min_bounce_speed_change_in_s:
                 continue
+
+            # How near the rail counts as "at" it has to include the distance
+            # the ball covered since the previous frame.  A break travels ~200
+            # in/s, which is nearly 7 inches per frame at 30 fps, so by the time
+            # the reversal is observable the ball is already well off the
+            # cushion.  A fixed 1.4-inch gate therefore matched essentially
+            # never -- clips full of obvious bounces reported zero.
+            proximity = base_proximity + track.speed / self.fps
 
             pos = track.kf.position
             x, y = float(pos[0]), float(pos[1])
@@ -215,13 +228,47 @@ class EventDetector:
     def _balls_struck(
         self, tracks: Sequence[Track], frame: int, t_s: float
     ) -> List[Event]:
+        """A ball going from rest to moving under its own steam.
+
+        This needs a proper two-threshold state machine, and both thresholds
+        exist for a reason:
+
+        * A single **low** threshold for the remembered state means a ball
+          accelerating through it sets "already moving" on the way up, and the
+          strike is never reported -- a clip with five pots produced no shots.
+        * A single threshold of *any* value means a ball whose estimated speed
+          wobbles across it fires on every upward crossing; one ball emitted
+          eight "struck" events in half a second.
+
+        With a hysteresis band, a ball must genuinely come to rest (below
+        ``_rest_speed``) before it can be struck again (above
+        ``_struck_speed``), and anything in between leaves the state alone.
+        """
         out: List[Event] = []
+        struck_speed = self._struck_speed
+        rest_speed = self._rest_speed
+
         for track in tracks:
-            was = self._was_moving.get(track.track_id)
-            if was is None:
+            speed = track.speed
+            state = self._motion_state.get(track.track_id)
+
+            if state is None:
+                # First sighting: adopt whatever it is doing, and say nothing.
+                # A brand-new track also starts with a deliberately wide
+                # velocity prior, so its first estimates are not trustworthy.
+                self._motion_state[track.track_id] = (
+                    "moving" if speed > struck_speed else "rest"
+                )
                 continue
-            if was or track.speed <= self._shot_speed:
+
+            if state == "moving":
+                if speed < rest_speed:
+                    self._motion_state[track.track_id] = "rest"
                 continue
+
+            if speed <= struck_speed or track.age < _MIN_AGE_FOR_STRUCK:
+                continue
+            self._motion_state[track.track_id] = "moving"
             pos = track.kf.position
             img = self.table.table_to_image([tuple(pos)])[0]
             out.append(
@@ -232,7 +279,7 @@ class EventDetector:
                     table_xy=(float(pos[0]), float(pos[1])),
                     image_xy=(float(img[0]), float(img[1])),
                     track_ids=(track.track_id,),
-                    detail={"speed_in_s": track.speed},
+                    detail={"speed_in_s": speed},
                 )
             )
         return out

@@ -66,7 +66,7 @@ class TrackingPipeline:
         self.fps = max(float(fps), 1.0)
         self.detector = BallDetector(cfg, table, cloth)
         self.tracker = MultiObjectTracker(cfg, table, self.fps)
-        self.event_detector = EventDetector(cfg, table)
+        self.event_detector = EventDetector(cfg, table, self.fps)
         self.renderer = Renderer(cfg, table, cloth)
         self.recalibrations = 0
         self.last_frame_index: Optional[int] = None
@@ -260,7 +260,7 @@ class TrackingPipeline:
         self.table = candidate
         self.detector = candidate_detector
         self.tracker = MultiObjectTracker(self.cfg, self.table, self.fps)
-        self.event_detector = EventDetector(self.cfg, self.table)
+        self.event_detector = EventDetector(self.cfg, self.table, self.fps)
         self.renderer = Renderer(self.cfg, self.table, self.cloth)
         self._finished_seen = 0
         self.recalibrations += 1

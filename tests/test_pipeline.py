@@ -183,47 +183,89 @@ def test_a_break_is_reported_as_one_shot(synthetic_clip, tmp_path):
     assert shot["peak_speed_in_s"] > 100.0, shot
 
 
-def test_ball_struck_uses_one_threshold_for_state_and_event():
-    """Regression: the detector remembered "was moving" at the *stationary*
-    speed but emitted at six times that, so a ball accelerating through the gap
-    set the flag on the way up and its strike was never reported.  A clip with
-    five pots produced zero shots."""
+def _struck_events(detector, track, speeds, start_frame=0):
+    """Feed a speed profile through the detector and collect the strikes."""
+    struck = []
+    for i, s in enumerate(speeds):
+        track._speed = s
+        # Well past the new-track age gate; these tests are about the
+        # thresholds, not about a filter that has not settled yet.
+        track.age = 100 + i
+        for e in detector.step([track], start_frame + i, (start_frame + i) / 30.0):
+            if e.type.value == "ball_struck":
+                struck.append(e)
+    return struck
+
+
+class _FakeTrack:
+    def __init__(self) -> None:
+        from billiards.kalman import BallKalman
+        from billiards.track import TrackState
+
+        self.track_id = 1
+        self.state = TrackState.CONFIRMED
+        self.kf = BallKalman((50.0, 25.0))
+        self._speed = 0.0
+        self.age = 100
+        self.velocity = np.zeros(2)
+
+    @property
+    def speed(self) -> float:
+        return self._speed
+
+
+def _detector():
     from billiards.events import EventDetector
     from billiards.geometry import TableModel
 
-    cfg = Config()
     table = TableModel(
         np.array([[300.0, 180.0], [980.0, 180.0], [1180.0, 600.0], [100.0, 600.0]]),
         length_in=100.0, width_in=50.0, ball_diameter_in=2.25,
     )
-    detector = EventDetector(cfg, table)
-    speed = detector._shot_speed
-    assert speed > cfg.tracker.stationary_speed_in_s
+    return EventDetector(Config(), table, fps=30.0)
 
-    class _FakeTrack:
-        def __init__(self) -> None:
-            from billiards.kalman import BallKalman
-            from billiards.track import TrackState
 
-            self.track_id = 1
-            self.state = TrackState.CONFIRMED
-            self.kf = BallKalman((50.0, 25.0))
-            self._speed = 0.0
-            self.velocity = np.zeros(2)
+def test_a_ball_accelerating_through_the_band_is_still_reported_as_struck():
+    """Regression: with one *low* threshold for the remembered state, a ball
+    ramping up set "already moving" on the way and the strike was never
+    reported.  A clip containing five pots produced zero shots."""
+    detector = _detector()
+    lo, hi = detector._rest_speed, detector._struck_speed
+    ramp = [0.0, 0.5 * (lo + hi), hi * 3.0]
+    assert len(_struck_events(detector, _FakeTrack(), ramp)) == 1
 
-        @property
-        def speed(self) -> float:
-            return self._speed
 
-    track = _FakeTrack()
-    # Frame 0: at rest. Frame 1: mid-ramp, between the two old thresholds.
-    # Frame 2: clearly struck.  The event must fire.
-    detector.step([track], 0, 0.0)
-    track._speed = 0.5 * (cfg.tracker.stationary_speed_in_s + speed)
-    detector.step([track], 1, 1 / 30)
-    track._speed = speed * 3.0
-    events = detector.step([track], 2, 2 / 30)
-    assert any(e.type.value == "ball_struck" for e in events), events
+def test_a_wobbling_speed_does_not_fire_repeatedly():
+    """Regression: with one threshold of any value, a ball whose estimated
+    speed wobbles across it fires on every upward crossing -- one ball emitted
+    eight strikes in half a second."""
+    detector = _detector()
+    hi = detector._struck_speed
+    # Struck once, then jittering either side of the threshold while it rolls.
+    profile = [0.0, hi * 2.5] + [hi * 0.9, hi * 1.4] * 6
+    assert len(_struck_events(detector, _FakeTrack(), profile)) == 1
+
+
+def test_a_ball_that_truly_stops_can_be_struck_again():
+    detector = _detector()
+    lo, hi = detector._rest_speed, detector._struck_speed
+    profile = [0.0, hi * 2.5, hi * 1.2, lo * 0.5, 0.0, hi * 2.5]
+    assert len(_struck_events(detector, _FakeTrack(), profile)) == 2
+
+
+def test_cushion_proximity_allows_for_one_frame_of_travel():
+    """A break travels ~200 in/s, nearly 7 inches per frame at 30 fps, so by
+    the time the velocity reversal is observable the ball is well off the
+    cushion.  A fixed 1.4-inch gate matched essentially never: clips full of
+    obvious bounces reported zero."""
+    detector = _detector()
+    base = (
+        Config().events.cushion_proximity_ball_radii
+        * detector.table.ball_radius_in
+    )
+    fast = 200.0
+    assert base < 2.0
+    assert base + fast / detector.fps > 6.0
 
 
 @pytest.mark.slow
