@@ -168,12 +168,19 @@ agreeing frames**, as the initial calibration does, rather than from one frame
 of a crossfade. A candidate table is adopted only if its polygon is mostly
 cloth, which is what separates a table from a sponsor banner.
 
-### 3.6 Events — `billiards/events.py`
+### 3.6 Events and shots — `billiards/events.py`, `billiards/shots.py`
 
 `distance < 20` pixels became: closer than **1.12 ball diameters** *and* with a
 positive closing speed. Requiring the balls to be approaching is what stops two
 balls resting against each other from emitting a collision every frame. Cushion
-contacts, pots and shot starts are detected on the same physical basis.
+contacts, pots and balls struck are detected on the same physical basis.
+
+Those raw events are then grouped into **shots**, because a flat list of
+"collision at t=4.12s between track 3 and track 7" is accurate but not readable.
+A shot opens when a ball goes from rest to struck and closes once every ball has
+settled — the referee's definition, needing no threshold of its own — and is
+reported as one line: `shot 2: CUE struck -- hit #4 first -- 2 cushions --
+potted #7 -- 5.4s`.
 
 ### 3.7 Output — `billiards/render.py`, `video.py`
 
@@ -219,7 +226,7 @@ contacts, pots and shot starts are detected on the same physical basis.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **38 tests**, including end-to-end accuracy assertions and a camera-cut test.
+* **40 tests**, including end-to-end accuracy assertions and a camera-cut test.
 * Works **headless**.
 
 ---
@@ -304,7 +311,8 @@ billiards/
   kalman.py      constant-velocity + friction filter, adaptive noise
   assignment.py  Hungarian assignment (+ pure-NumPy fallback)
   track.py       track lifecycle and data association
-  events.py      collisions, cushions, pots, shot starts
+  events.py      collisions, cushions, pots, balls struck
+  shots.py       grouping those events into readable shots
   render.py      annotated view and synthetic overhead diagram
   video.py       input, output, CSV/JSON export
   pipeline.py    orchestration, camera-cut handling, whole-video driver
@@ -313,5 +321,5 @@ tools/
   make_synthetic_clip.py   physics simulator + renderer + ground truth
   evaluate.py              MOT scoring
 legacy/          the original v1 code, kept for comparison
-tests/           38 tests
+tests/           40 tests
 ```

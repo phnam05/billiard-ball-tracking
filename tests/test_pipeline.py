@@ -162,6 +162,71 @@ def test_no_phantom_balls_at_the_pockets(synthetic_clip, tmp_path):
 
 
 @pytest.mark.slow
+def test_a_break_is_reported_as_one_shot(synthetic_clip, tmp_path):
+    """A flat event list is accurate but unreadable; a shot is what a player
+    asks for.  The synthetic clip is exactly one break, so it must come back as
+    exactly one shot, opened by the cue ball."""
+    summary = run(
+        Config(),
+        RunOptions(
+            video=synthetic_clip["video"],
+            export_json=str(tmp_path / "run.json"),
+            progress_every=0,
+        ),
+    )
+    shots = summary["shot_log"]
+    assert len(shots) == 1, [s["summary"] for s in shots]
+    shot = shots[0]
+    assert shot["opener"] == "CUE", shot
+    assert shot["collisions"] >= 1, shot
+    assert shot["duration_s"] and shot["duration_s"] > 0.5, shot
+    assert shot["peak_speed_in_s"] > 100.0, shot
+
+
+def test_ball_struck_uses_one_threshold_for_state_and_event():
+    """Regression: the detector remembered "was moving" at the *stationary*
+    speed but emitted at six times that, so a ball accelerating through the gap
+    set the flag on the way up and its strike was never reported.  A clip with
+    five pots produced zero shots."""
+    from billiards.events import EventDetector
+    from billiards.geometry import TableModel
+
+    cfg = Config()
+    table = TableModel(
+        np.array([[300.0, 180.0], [980.0, 180.0], [1180.0, 600.0], [100.0, 600.0]]),
+        length_in=100.0, width_in=50.0, ball_diameter_in=2.25,
+    )
+    detector = EventDetector(cfg, table)
+    speed = detector._shot_speed
+    assert speed > cfg.tracker.stationary_speed_in_s
+
+    class _FakeTrack:
+        def __init__(self) -> None:
+            from billiards.kalman import BallKalman
+            from billiards.track import TrackState
+
+            self.track_id = 1
+            self.state = TrackState.CONFIRMED
+            self.kf = BallKalman((50.0, 25.0))
+            self._speed = 0.0
+            self.velocity = np.zeros(2)
+
+        @property
+        def speed(self) -> float:
+            return self._speed
+
+    track = _FakeTrack()
+    # Frame 0: at rest. Frame 1: mid-ramp, between the two old thresholds.
+    # Frame 2: clearly struck.  The event must fire.
+    detector.step([track], 0, 0.0)
+    track._speed = 0.5 * (cfg.tracker.stationary_speed_in_s + speed)
+    detector.step([track], 1, 1 / 30)
+    track._speed = speed * 3.0
+    events = detector.step([track], 2, 2 / 30)
+    assert any(e.type.value == "ball_struck" for e in events), events
+
+
+@pytest.mark.slow
 def test_events_are_detected_on_a_break(synthetic_clip, tmp_path):
     summary = run(
         Config(),

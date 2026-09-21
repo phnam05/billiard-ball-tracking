@@ -145,6 +145,11 @@ def cmd_track(args: argparse.Namespace) -> int:
         )
         _log(f"tracks created: {summary['tracks_created']}")
         _log(f"events: {summary['events'] or 'none'}")
+        shots = summary.get("shot_log") or []
+        if shots:
+            _log(f"{len(shots)} shot(s):")
+            for shot in shots:
+                _log(f"  {shot['summary']}")
         for key in ("output_video", "output_csv", "output_json"):
             if key in summary:
                 _log(f"{key}: {summary[key]}")

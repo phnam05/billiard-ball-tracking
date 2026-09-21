@@ -1,4 +1,4 @@
-"""Shot events: ball-ball collisions, cushion contacts, pots and shot starts.
+"""Shot events: ball-ball collisions, cushion contacts, pots and balls struck.
 
 The old collision test was ``np.linalg.norm(cue - object) < 20`` -- twenty
 pixels.  Twenty pixels is about one ball at 480p on a tight camera, three balls
@@ -29,7 +29,7 @@ class EventType(Enum):
     COLLISION = "collision"
     CUSHION = "cushion"
     POT = "pot"
-    SHOT_START = "shot_start"
+    BALL_STRUCK = "ball_struck"
 
 
 @dataclass
@@ -66,6 +66,18 @@ class EventDetector:
         self._prev_velocity: Dict[int, np.ndarray] = {}
         self._was_moving: Dict[int, bool] = {}
 
+    @property
+    def _shot_speed(self) -> float:
+        """Speed at which a ball counts as having been struck.
+
+        The *same* number has to serve both as the event threshold and as the
+        state remembered between frames.  Using a lower one for the state (the
+        stationary cut-off) let a ball accelerating through the gap set
+        "already moving" on its way up, so the strike itself was never reported
+        -- which is why a clip containing five pots produced zero shots.
+        """
+        return max(self.cfg.tracker.stationary_speed_in_s * 6.0, 12.0)
+
     # -- public ------------------------------------------------------------
 
     def step(
@@ -75,13 +87,11 @@ class EventDetector:
         new: List[Event] = []
         new.extend(self._collisions(confirmed, frame, t_s))
         new.extend(self._cushions(confirmed, frame, t_s))
-        new.extend(self._shot_starts(confirmed, frame, t_s))
+        new.extend(self._balls_struck(confirmed, frame, t_s))
 
         for track in confirmed:
             self._prev_velocity[track.track_id] = track.velocity.copy()
-            self._was_moving[track.track_id] = (
-                track.speed > self.cfg.tracker.stationary_speed_in_s
-            )
+            self._was_moving[track.track_id] = track.speed > self._shot_speed
 
         self.events.extend(new)
         return new
@@ -202,23 +212,21 @@ class EventDetector:
             )
         return out
 
-    def _shot_starts(
+    def _balls_struck(
         self, tracks: Sequence[Track], frame: int, t_s: float
     ) -> List[Event]:
         out: List[Event] = []
-        threshold = self.cfg.tracker.stationary_speed_in_s
         for track in tracks:
             was = self._was_moving.get(track.track_id)
             if was is None:
                 continue
-            now = track.speed > max(threshold * 6.0, 12.0)
-            if was or not now:
+            if was or track.speed <= self._shot_speed:
                 continue
             pos = track.kf.position
             img = self.table.table_to_image([tuple(pos)])[0]
             out.append(
                 Event(
-                    type=EventType.SHOT_START,
+                    type=EventType.BALL_STRUCK,
                     frame=frame,
                     t_s=t_s,
                     table_xy=(float(pos[0]), float(pos[1])),

@@ -26,6 +26,7 @@ from .detect import BallDetector, Detection
 from .events import Event, EventDetector, EventType
 from .geometry import TableModel
 from .render import Renderer
+from .shots import Shot, ShotSegmenter
 from .table import CalibrationResult, ClothModel, calibrate, largest_cloth_contour
 from .track import MultiObjectTracker, Track, TrackState
 from .video import (
@@ -87,6 +88,7 @@ class TrackingPipeline:
         #: stretch since the last camera cut.
         self.all_events: List[Event] = []
         self._tracks_created_total = 0
+        self.shots = ShotSegmenter(cfg, self.fps)
 
     # -- per frame ---------------------------------------------------------
 
@@ -142,6 +144,8 @@ class TrackingPipeline:
                 for tid in e.track_ids:
                     if tid in by_id:
                         by_id[tid].kf.apply_impulse()
+
+        self.shots.step(tracks, events, frame_index, t_s)
 
         annotated = None
         if annotate:
@@ -323,6 +327,7 @@ class TrackingPipeline:
             "events": self.event_summary(),
             "recalibrations": self.recalibrations,
             "frames_view_lost": self.view_lost_frames,
+            "shots": len(self.shots.shots),
             "tracks_created": self._tracks_created_total + max(0, self.tracker._next_id - 1),
             "tracks_alive": len(self.tracker.tracks),
             "tracks_finished": len(self.tracker.finished),
@@ -458,6 +463,10 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
                     f"events={len(pipeline.all_events)}"
                 )
     finally:
+        pipeline.shots.finish(
+            pipeline._last_frame_index or 0,
+            (pipeline._last_frame_index or 0) / pipeline.fps,
+        )
         if sink is not None:
             sink.close()
         if csv_writer is not None:
@@ -473,6 +482,7 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
         "wall_seconds": round(elapsed, 2),
         "processing_fps": round(frames_done / elapsed, 2) if elapsed > 0 else None,
         **pipeline.summary(),
+        "shot_log": pipeline.shots.to_list(),
         "event_log": [e.to_dict() for e in pipeline.all_events],
     }
     if opts.output:

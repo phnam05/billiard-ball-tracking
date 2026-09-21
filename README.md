@@ -55,8 +55,19 @@ While a window is open: `space` pauses, `c` clears the trails, `q` quits.
   is *predicting* rather than *seeing* is drawn dashed.
 * **`--csv`** — one row per ball per frame: position in table inches and in
   image pixels, velocity, speed, track state.
-* **`--json`** — calibration report, run statistics and the full event log
-  (collisions with closing speed, cushion contacts, pots, shot starts).
+* **`--json`** — calibration report, run statistics, the full event log
+  (collisions with closing speed, cushion contacts, pots, balls struck) and a
+  **shot log**: the raw events grouped into shots, the way a player reads them.
+
+```
+[billiards] 2 shot(s):
+[billiards]   shot 1: CUE struck -- hit #4 first -- nothing potted -- 1.9s
+[billiards]   shot 2: #2 struck -- potted #3, #20, #14, #18 -- 5.4s
+```
+
+A shot opens when a ball goes from rest to struck and closes once every ball has
+settled — the same definition a referee uses — so it needs no timer or threshold
+of its own.
 
 ### Options worth knowing
 
@@ -105,7 +116,8 @@ detections ──► Hungarian assignment (distance + colour) ──► Kalman f
    happens; globally optimal assignment on position *and* colour; coasting
    through occlusions instead of dying.
 4. **Analyse.** Events in physical units: contact within 1.12 ball diameters
-   *with a positive closing speed*, cushion bounces, pots.
+   *with a positive closing speed*, cushion bounces, pots — then grouped into
+   shots by ball motion.
 5. **Survive the cut.** Broadcasts change angle mid-clip. When the bed stops
    looking like cloth, tracking pauses rather than reporting balls in the crowd,
    and the table is re-found from several agreeing frames.
@@ -146,7 +158,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 38
+pytest -q                  # all 40
 pytest -q -m "not slow"    # unit tests only
 ```
 

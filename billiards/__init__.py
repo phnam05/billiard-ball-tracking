@@ -19,6 +19,7 @@ from .events import Event, EventDetector, EventType
 from .geometry import TableModel
 from .kalman import BallKalman
 from .pipeline import FrameResult, RunOptions, TrackingPipeline, build_pipeline, run
+from .shots import Shot, ShotSegmenter
 from .table import CalibrationResult, ClothModel, calibrate, estimate_cloth_color
 from .track import MultiObjectTracker, Track, TrackState
 
@@ -38,6 +39,8 @@ __all__ = [
     "FrameResult",
     "MultiObjectTracker",
     "RunOptions",
+    "Shot",
+    "ShotSegmenter",
     "TABLE_PRESETS",
     "TableModel",
     "Track",

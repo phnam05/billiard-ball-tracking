@@ -29,7 +29,7 @@ EVENT_COLOURS: Dict[EventType, Tuple[int, int, int]] = {
     EventType.COLLISION: (60, 255, 255),
     EventType.CUSHION: (255, 200, 80),
     EventType.POT: (90, 90, 255),
-    EventType.SHOT_START: (150, 255, 150),
+    EventType.BALL_STRUCK: (150, 255, 150),
 }
 
 
