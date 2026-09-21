@@ -89,6 +89,35 @@ def test_associate_handles_empty():
     assert associate(np.zeros((0, 0))) == ([], [], [])
 
 
+def test_the_numpy_fallback_is_used_when_scipy_is_absent(monkeypatch):
+    """The README promises NumPy and OpenCV are the only hard requirements.
+
+    Verify the fallback really is wired up, and that it returns the same
+    assignment SciPy does on a matrix where a greedy answer would differ.
+    """
+    import billiards.assignment as assignment
+
+    monkeypatch.setattr(assignment, "HAVE_SCIPY", False)
+    cost = np.array([[1.0, 2.0, 9.0], [3.0, 100.0, 9.0], [9.0, 9.0, 0.5]])
+    rows, cols = assignment.solve(cost)
+    assert cost[rows, cols].sum() == pytest.approx(5.5)
+
+
+def test_json_config_works_without_pyyaml(monkeypatch, tmp_path):
+    import billiards.config as config_module
+
+    monkeypatch.setattr(config_module, "yaml", None)
+    cfg = Config()
+    cfg.tracker.max_speed_in_s = 321.0
+
+    path = tmp_path / "cfg.json"
+    cfg.dump(path)
+    assert Config.load(path).tracker.max_speed_in_s == pytest.approx(321.0)
+
+    with pytest.raises(RuntimeError, match="PyYAML is required"):
+        cfg.dump(tmp_path / "cfg.yaml")
+
+
 # --------------------------------------------------------------------------
 # Kalman
 # --------------------------------------------------------------------------
