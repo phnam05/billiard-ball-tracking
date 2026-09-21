@@ -78,8 +78,25 @@ class ColorSignature:
         bgr = cv2.cvtColor(patch, cv2.COLOR_Lab2BGR)[0, 0]
         return (int(bgr[0]), int(bgr[1]), int(bgr[2]))
 
+    @property
+    def cue_score(self) -> float:
+        """How much this looks like *the* cue ball: white, and colourless.
+
+        A score rather than a test, because there is exactly one cue ball on the
+        table and which ball it is, is a question about the whole set -- see
+        MultiObjectTracker.assign_roles.  Judging each ball on its own gave two
+        "cue balls" and four "8 balls" on a real clip.
+        """
+        return self.white_fraction - self.chroma_high / 100.0
+
+    @property
+    def eight_score(self) -> float:
+        """How much this looks like *the* 8 ball: dark, and colourless."""
+        return (1.0 - self.lab[0] / 255.0) - self.chroma_high / 100.0
+
     def classify(self) -> str:
-        """Coarse ball type: ``cue``, ``stripe``, ``eight`` or ``solid``.
+        """Appearance class from this ball alone: ``cue``, ``stripe``,
+        ``eight`` or ``solid``.
 
         The cue ball and a striped ball are both mostly white, so white area
         alone cannot separate them.  What does is that a stripe carries one

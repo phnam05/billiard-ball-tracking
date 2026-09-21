@@ -130,6 +130,41 @@ def test_tracking_accuracy_against_ground_truth(synthetic_clip, tmp_path):
 
 
 @pytest.mark.slow
+def test_at_most_one_cue_ball_and_one_eight(synthetic_clip, tmp_path):
+    """A table has exactly one of each, so the labels must too.
+
+    Classifying each ball on its own appearance gave two "cue balls" and four
+    "8 balls" on a real clip -- grey cloth pushes several balls into "dark and
+    colourless" at once.  The roles are assigned across the whole set instead.
+    """
+    import csv as _csv
+    from collections import Counter, defaultdict
+
+    csv_path = tmp_path / "tracks.csv"
+    run(
+        Config(),
+        RunOptions(
+            video=synthetic_clip["video"],
+            export_csv=str(csv_path),
+            progress_every=0,
+        ),
+    )
+
+    per_frame = defaultdict(Counter)
+    with csv_path.open(encoding="utf-8", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            if row["state"] == "confirmed":
+                per_frame[int(row["frame"])][row["ball_type"]] += 1
+
+    assert per_frame, "no confirmed tracks at all"
+    for frame, counts in per_frame.items():
+        assert counts["cue"] <= 1, f"frame {frame}: {counts}"
+        assert counts["eight"] <= 1, f"frame {frame}: {counts}"
+    # And the cue ball really was found on this clip.
+    assert any(c["cue"] == 1 for c in per_frame.values())
+
+
+@pytest.mark.slow
 def test_no_phantom_balls_at_the_pockets(synthetic_clip, tmp_path):
     """Pockets are dark, round and ball-sized, and they never move.
 

@@ -123,6 +123,12 @@ the homography at each image location**.
 * **A blob thinner than a ball cannot contain one.** Gating on the maximum of
   the distance transform is what keeps the cue stick, the bridge hand and rail
   glare out — with no length or colour threshold to tune.
+* **Which ball is the cue ball is a question about the whole set**, not about
+  each ball alone: a table has exactly one cue ball and one 8. Classifying
+  independently produced two cue balls and four 8 balls on a real clip, because
+  grey cloth pushes several balls into "dark and colourless" at once. The roles
+  are now assigned across all confirmed tracks at once, with enough stickiness
+  that two similar balls do not trade the label back and forth.
 * Ball identity uses a **CIE Lab colour signature** plus a white fraction and a
   high percentile of chroma. The last one separates the cue ball from a striped
   ball: both are mostly white, but a stripe carries one strongly coloured band
@@ -226,7 +232,7 @@ potted #7 -- 5.4s`.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **49 tests**, including end-to-end accuracy assertions and a camera-cut test.
+* **50 tests**, including end-to-end accuracy assertions and a camera-cut test.
 * Works **headless**.
 
 ---
@@ -321,5 +327,5 @@ tools/
   make_synthetic_clip.py   physics simulator + renderer + ground truth
   evaluate.py              MOT scoring
 legacy/          the original v1 code, kept for comparison
-tests/           49 tests
+tests/           50 tests
 ```

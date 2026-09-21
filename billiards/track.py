@@ -27,6 +27,19 @@ from .geometry import TableModel
 from .kalman import BallKalman
 
 
+#: A ball has to be at least this white before anything is called the cue ball,
+#: so a table with no cue ball in frame does not promote the palest solid.
+_MIN_CUE_WHITE_FRACTION = 0.45
+
+#: ...and at least this dark before anything is called the 8.
+_MAX_EIGHT_LIGHTNESS = 110.0
+
+#: How much better a rival has to score before a role changes hands.  Two
+#: similar-looking balls otherwise trade the "CUE" label back and forth every
+#: few frames, which is worse than being slightly wrong consistently.
+_ROLE_STICKINESS = 0.10
+
+
 class TrackState(Enum):
     TENTATIVE = "tentative"
     CONFIRMED = "confirmed"
@@ -51,7 +64,7 @@ class Track:
         "track_id", "kf", "signature", "state", "hits", "age",
         "time_since_update", "trail", "last_image_xy", "last_radius_px",
         "birth_frame", "death_frame", "death_reason", "_trail_cap",
-        "last_observed_xy",
+        "last_observed_xy", "role",
     )
 
     def __init__(
@@ -85,6 +98,9 @@ class Track:
         self.birth_frame = frame
         self.death_frame: Optional[int] = None
         self.death_reason: Optional[str] = None
+        #: 'cue', 'eight' or None -- assigned across all tracks at once,
+        #: because a table has exactly one of each.
+        self.role: Optional[str] = None
 
     # -- properties --------------------------------------------------------
 
@@ -110,14 +126,21 @@ class Track:
 
     @property
     def ball_type(self) -> str:
-        return self.signature.classify()
+        """``cue``, ``eight``, ``stripe`` or ``solid``.
+
+        The first two come from the table-wide role assignment rather than from
+        this ball's appearance alone, so at most one track can ever be the cue
+        ball and at most one the 8.
+        """
+        if self.role:
+            return self.role
+        return "stripe" if self.signature.classify() == "stripe" else "solid"
 
     @property
     def label(self) -> str:
-        t = self.ball_type
-        if t == "cue":
+        if self.role == "cue":
             return "CUE"
-        if t == "eight":
+        if self.role == "eight":
             return "8"
         return f"#{self.track_id}"
 
@@ -203,6 +226,7 @@ class MultiObjectTracker:
         trail_seconds = cfg.render.trail_seconds if cfg.render.trail_seconds > 0 else 8.0
         self._trail_cap = int(max(8, round(trail_seconds * self.fps)))
         self.last_stats: Dict[str, int] = {}
+        self._role_holders: Dict[str, int] = {}
 
     # -- cost --------------------------------------------------------------
 
@@ -271,6 +295,7 @@ class MultiObjectTracker:
             self._spawn(detections[di], frame)
 
         self._retire(frame)
+        self.assign_roles()
 
         for track in self.tracks:
             track.record(frame, t_s, self.table, observed=track.time_since_update == 0)
@@ -335,12 +360,61 @@ class MultiObjectTracker:
     def all_tracks(self) -> List[Track]:
         return list(self.tracks) + list(self.finished)
 
-    def cue_ball(self) -> Optional[Track]:
-        """The track that currently looks most like the cue ball."""
-        candidates = [t for t in self.active_tracks() if t.ball_type == "cue"]
-        if not candidates:
+    def assign_roles(self) -> None:
+        """Decide which single track is the cue ball, and which is the 8.
+
+        A pool table has exactly one of each, so this is a choice across the
+        whole set, not a test applied to each ball in isolation.  Classifying
+        independently produced two cue balls and four 8 balls on real footage --
+        grey cloth pushes several balls into "dark and colourless" at once.
+
+        Working from the tracks' smoothed colour signatures keeps the
+        assignment stable from frame to frame.
+        """
+        for track in self.tracks:
+            track.role = None
+
+        confirmed = [t for t in self.tracks if t.state is TrackState.CONFIRMED]
+        if not confirmed:
+            return
+
+        cue = self._pick_role(
+            confirmed,
+            "cue",
+            lambda t: t.signature.cue_score,
+            lambda t: t.signature.white_fraction >= _MIN_CUE_WHITE_FRACTION,
+        )
+
+        if not self.table.has_pockets:
+            return  # carom: no 8 ball
+        rest = [t for t in confirmed if t is not cue]
+        self._pick_role(
+            rest,
+            "eight",
+            lambda t: t.signature.eight_score,
+            lambda t: t.signature.lab[0] <= _MAX_EIGHT_LIGHTNESS,
+        )
+
+    def _pick_role(self, candidates, role, score, eligible):
+        """Give ``role`` to the best-scoring eligible track, stickily."""
+        usable = [t for t in candidates if eligible(t)]
+        if not usable:
+            self._role_holders.pop(role, None)
             return None
-        return max(candidates, key=lambda t: (t.signature.white_fraction, t.hits))
+
+        best = max(usable, key=score)
+        held = self._role_holders.get(role)
+        incumbent = next((t for t in usable if t.track_id == held), None)
+        if incumbent is not None and score(incumbent) >= score(best) - _ROLE_STICKINESS:
+            best = incumbent
+
+        best.role = role
+        self._role_holders[role] = best.track_id
+        return best
+
+    def cue_ball(self) -> Optional[Track]:
+        """The track currently holding the cue-ball role."""
+        return next((t for t in self.active_tracks() if t.role == "cue"), None)
 
     @property
     def tracks_created(self) -> int:
