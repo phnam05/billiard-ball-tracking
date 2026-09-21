@@ -1,0 +1,9 @@
+numpy>=1.24
+opencv-python>=4.8
+
+# Optional but recommended:
+#   scipy   - exact Hungarian assignment (a pure-NumPy fallback ships in
+#             billiards/assignment.py, so this is genuinely optional)
+#   pyyaml  - read/write YAML config files (JSON works without it)
+scipy>=1.10
+pyyaml>=6.0

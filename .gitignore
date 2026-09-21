@@ -214,3 +214,27 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+#################
+## Python / billiard-ball-tracking
+#################
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Run artifacts
+out/
+output/
+runs/
+*.avi
+*.mkv
+*_result.mp4
+*_tracks.csv
+*_events.json
+*_calibration.json

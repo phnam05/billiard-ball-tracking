@@ -1,0 +1,69 @@
+table:
+  preset: pool-9ft
+  length_in: 100.0
+  width_in: 50.0
+  ball_diameter_in: 2.25
+  overhead_px_per_inch: 8.0
+  calibration_frames: 25
+  recalibration_tolerance: 0.06
+  recalibration_interval: 150
+  bed_margin_ball_diameters: 0.35
+cloth:
+  hue_sigmas: 4.0
+  sat_sigmas: 4.5
+  val_sigmas: 6.0
+  min_hue_halfwidth: 6.0
+  min_sat_halfwidth: 40.0
+  min_val_halfwidth: 70.0
+  shadow_value_factor: 2.2
+  min_value: 25
+  min_saturation: 25
+  analysis_scale: 0.5
+detector:
+  min_area_ratio: 0.22
+  max_area_ratio: 32.0
+  split_area_ratio: 1.55
+  min_circularity: 0.55
+  min_solidity: 0.8
+  max_aspect_ratio: 2.6
+  open_radius_ball_radii: 0.22
+  peak_separation_ball_radii: 1.35
+  edge_margin_ball_diameters: 0.0
+  pocket_exclusion_ball_diameters: 1.45
+  split_peak_min_ratio: 0.55
+  split_peak_max_ratio: 1.75
+  max_detections: 40
+tracker:
+  max_speed_in_s: 700.0
+  gate_padding_ball_diameters: 1.2
+  velocity_tau_s: 3.6
+  accel_std_in_s2: 60.0
+  manoeuvre_gain_max: 25.0
+  meas_std_in: 0.22
+  init_vel_std_in_s: 120.0
+  color_cost_weight: 0.6
+  max_color_distance: 42.0
+  min_hits_to_confirm: 3
+  max_age_coasting: 45
+  max_age_tentative: 3
+  stationary_speed_in_s: 4.0
+events:
+  contact_distance_ball_diameters: 1.12
+  min_closing_speed_in_s: 6.0
+  min_bounce_speed_change_in_s: 18.0
+  cushion_proximity_ball_radii: 1.25
+  pocket_radius_ball_diameters: 1.9
+  refractory_s: 0.18
+render:
+  draw_trajectories: true
+  draw_ids: true
+  draw_detections: false
+  draw_table_outline: true
+  draw_hud: true
+  draw_events: true
+  trail_seconds: 4.0
+  trail_thickness: 2
+  overhead_panel: true
+  overhead_panel_scale: 0.34
+  font_scale: 0.45
+max_frame_width: 1280
