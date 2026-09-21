@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "billiard-ball-tracking"
+version = "2.0.0"
+description = "Track every ball on a pool table, with no per-video colour tuning"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Ngo Phuong Nam" }]
+keywords = ["billiards", "pool", "tracking", "computer-vision", "kalman", "opencv"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+]
+
+[project.optional-dependencies]
+# Both are genuinely optional: an exact pure-NumPy assignment solver ships in
+# billiards/assignment.py, and JSON config works without PyYAML.
+full = ["scipy>=1.10", "pyyaml>=6.0"]
+dev = ["pytest>=7.0", "scipy>=1.10", "pyyaml>=6.0"]
+
+[project.scripts]
+billiards = "billiards.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/phnam05/billiard-ball-tracking"
+
+[tool.setuptools]
+packages = ["billiards"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: renders a synthetic clip and runs the full pipeline",
+]

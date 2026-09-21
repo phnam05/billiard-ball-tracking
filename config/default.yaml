@@ -7,6 +7,11 @@ table:
   calibration_frames: 25
   recalibration_tolerance: 0.06
   recalibration_interval: 150
+  view_change_coverage_ratio: 0.55
+  view_change_patience: 3
+  recovery_frames: 5
+  recovery_max_spread_px: 12.0
+  min_bed_coverage: 0.72
   bed_margin_ball_diameters: 0.35
 cloth:
   hue_sigmas: 4.0
@@ -15,12 +20,17 @@ cloth:
   min_hue_halfwidth: 6.0
   min_sat_halfwidth: 40.0
   min_val_halfwidth: 70.0
+  max_hue_halfwidth: 22.0
+  max_sat_halfwidth: 75.0
+  max_val_halfwidth: 85.0
+  refine_iterations: 2
   shadow_value_factor: 2.2
+  shadow_min_value_ratio: 0.55
   min_value: 25
   min_saturation: 25
   analysis_scale: 0.5
 detector:
-  min_area_ratio: 0.22
+  min_area_ratio: 0.33
   max_area_ratio: 32.0
   split_area_ratio: 1.55
   min_circularity: 0.55
