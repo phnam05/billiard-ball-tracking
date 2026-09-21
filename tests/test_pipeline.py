@@ -201,6 +201,64 @@ def test_output_video_is_written_and_playable(synthetic_clip, tmp_path):
 
 
 @pytest.mark.slow
+def test_tracking_pauses_when_the_table_leaves_the_view(synthetic_clip, tmp_path):
+    """Broadcast footage cuts to replays, crowd shots and player close-ups.
+
+    With a stale homography still applied, a cut produced dozens of "balls"
+    sitting on spectators and trajectories drawn between them.  Nothing at all
+    is the correct output for a frame with no table in it.
+    """
+    import cv2
+
+    src = cv2.VideoCapture(synthetic_clip["video"])
+    frames = []
+    while True:
+        ok, f = src.read()
+        if not ok:
+            break
+        frames.append(f)
+    src.release()
+    assert frames
+
+    h, w = frames[0].shape[:2]
+    rng = np.random.default_rng(5)
+    # A "cut": a busy, cloth-free scene of the same size.
+    cut = [
+        rng.integers(0, 255, (h, w, 3), dtype=np.uint8) // 2 + 40
+        for _ in range(45)
+    ]
+
+    mixed = tmp_path / "mixed.mp4"
+    writer = cv2.VideoWriter(
+        str(mixed), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h)
+    )
+    for f in frames + cut:
+        writer.write(f)
+    writer.release()
+
+    csv_path = tmp_path / "tracks.csv"
+    summary = run(
+        Config(),
+        RunOptions(video=str(mixed), export_csv=str(csv_path), progress_every=0),
+    )
+    assert summary["frames_view_lost"] > 10, summary
+
+    import csv as _csv
+    from collections import Counter
+
+    per_frame = Counter()
+    with csv_path.open(encoding="utf-8", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            per_frame[int(row["frame"])] += 1
+
+    cut_start = len(frames)
+    # A few frames of patience at the boundary is expected; deep into the cut
+    # there must be nothing at all.
+    for f in range(cut_start + 15, cut_start + len(cut)):
+        assert per_frame.get(f, 0) == 0, f"tracks reported on frame {f} with no table"
+
+
+@pytest.mark.slow
 def test_manual_table_corners_are_respected(synthetic_clip):
     from billiards.pipeline import build_pipeline
 

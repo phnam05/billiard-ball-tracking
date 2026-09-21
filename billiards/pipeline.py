@@ -71,6 +71,23 @@ class TrackingPipeline:
         self._last_frame_index: Optional[int] = None
         self._finished_seen = 0
 
+        #: Bed cloth coverage when the calibration was fresh, used as the
+        #: reference for deciding the view has changed.  Filled on first frame.
+        self._reference_coverage: Optional[float] = None
+        self._low_coverage_frames = 0
+        self._recovery_quads: List[np.ndarray] = []
+        #: False while the calibrated table is not on screen.  Tracking is
+        #: suspended rather than producing balls in the crowd.
+        self.view_valid = True
+        self.view_lost_frames = 0
+
+        #: Run-level totals.  The tracker and event detector are rebuilt from
+        #: scratch on a recalibration, so their own counters restart; these
+        #: survive so the summary describes the whole clip rather than only the
+        #: stretch since the last camera cut.
+        self.all_events: List[Event] = []
+        self._tracks_created_total = 0
+
     # -- per frame ---------------------------------------------------------
 
     def process(
@@ -84,6 +101,16 @@ class TrackingPipeline:
         self._last_frame_index = frame_index
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        cloth_mask = self.cloth.mask(hsv)
+
+        if self._check_view(frame, hsv, cloth_mask, frame_index):
+            # The calibrated table is not on screen.  Reporting tracks here is
+            # worse than reporting nothing: on a broadcast cut it draws balls
+            # and trajectories over the crowd.
+            annotated = frame.copy() if annotate else None
+            if annotated is not None:
+                self.renderer._draw_hud(annotated, self.hud(frame_index, t_s))
+            return FrameResult(frame_index, t_s, [], [], [], annotated)
 
         if (
             self.cfg.table.recalibration_interval > 0
@@ -91,17 +118,21 @@ class TrackingPipeline:
             and frame_index % self.cfg.table.recalibration_interval == 0
         ):
             self._maybe_recalibrate(frame, hsv, frame_index)
+            cloth_mask = self.cloth.mask(hsv)
 
-        detections = self.detector.detect(frame, hsv)
+        detections = self.detector.detect(frame, hsv, cloth_mask)
         tracks = self.tracker.update(detections, dt, frame_index, t_s)
         events = self.event_detector.step(tracks, frame_index, t_s)
+        self.all_events.extend(events)
 
         # Pots are discovered when the tracker retires a track near a pocket.
         while self._finished_seen < len(self.tracker.finished):
             dead = self.tracker.finished[self._finished_seen]
             self._finished_seen += 1
             if dead.death_reason == "potted":
-                events.append(self.event_detector.note_pot(dead, frame_index, t_s))
+                pot = self.event_detector.note_pot(dead, frame_index, t_s)
+                events.append(pot)
+                self.all_events.append(pot)
 
         # A collision is a discontinuity the motion model cannot represent, so
         # tell the filters to stop trusting their velocity estimates.
@@ -122,67 +153,177 @@ class TrackingPipeline:
 
     def hud(self, frame_index: int, t_s: float) -> Dict[str, object]:
         stats = self.tracker.last_stats
+        if not self.view_valid:
+            return {
+                "frame": f"{frame_index}  ({t_s:6.2f}s)",
+                "status": "table not in view - tracking paused",
+            }
         return {
             "frame": f"{frame_index}  ({t_s:6.2f}s)",
             "balls": f"{stats.get('confirmed', 0)} tracked, "
                      f"{stats.get('coasting', 0)} coasting",
             "detections": stats.get("detections", 0),
             "events": ", ".join(
-                f"{k}={v}" for k, v in sorted(self.event_detector.summary().items())
+                f"{k}={v}" for k, v in sorted(self.event_summary().items())
             )
             or "none",
         }
 
+    # -- view validity -----------------------------------------------------
+
+    def _check_view(
+        self,
+        frame: np.ndarray,
+        hsv: np.ndarray,
+        cloth_mask: np.ndarray,
+        frame_index: int,
+    ) -> bool:
+        """Return True when tracking should be suspended for this frame.
+
+        Broadcast pool cuts constantly -- to a replay, to an overhead angle, to
+        the players.  Without this check the pipeline keeps applying a stale
+        homography, so a cut to a crowd shot produced dozens of "balls" sitting
+        on spectators, and the tracker happily drew trajectories between them.
+        """
+        tcfg = self.cfg.table
+        if tcfg.view_change_coverage_ratio <= 0:
+            return False
+
+        coverage = self.detector.bed_cloth_coverage(cloth_mask)
+        if self._reference_coverage is None:
+            self._reference_coverage = max(coverage, 0.2)
+            return False
+
+        threshold = tcfg.view_change_coverage_ratio * self._reference_coverage
+
+        if coverage >= threshold and self.view_valid:
+            self._low_coverage_frames = 0
+            self._recovery_quads.clear()
+            return False
+
+        if self.view_valid:
+            self._low_coverage_frames += 1
+            if self._low_coverage_frames < max(1, tcfg.view_change_patience):
+                # A player leaning across the table dips coverage for a frame or
+                # two; that is not a cut, and tracks should coast through it.
+                return False
+            self.view_valid = False
+            self._recovery_quads.clear()
+
+        self.view_lost_frames += 1
+        # Look for the table in the new view.  Adopting it takes several
+        # agreeing frames, exactly as the initial calibration does -- a single
+        # frame during a crossfade is a bad basis for a homography that
+        # everything downstream depends on.
+        if self._try_recover(frame, hsv, frame_index):
+            self.view_valid = True
+            self._low_coverage_frames = 0
+            return False
+        return True
+
     # -- recalibration -----------------------------------------------------
 
-    def _maybe_recalibrate(
-        self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
-    ) -> None:
-        """Rebuild the table model if the camera has actually moved.
-
-        A broadcast cuts between angles; a phone on a tripod gets nudged.  Either
-        invalidates the homography, and with it every physical threshold.  The
-        cheap check below costs one contour fit every few seconds and is what
-        keeps a long clip from silently degrading after a camera change.
-        """
+    def _fit_quad(self, hsv: np.ndarray) -> Optional[np.ndarray]:
         from .geometry import quad_from_contour
 
-        mask = self.cloth.mask(hsv)
-        contour = largest_cloth_contour(mask)
+        contour = largest_cloth_contour(self.cloth.mask(hsv))
         if contour is None:
-            return
-        quad = quad_from_contour(contour)
-        if quad is None:
-            return
+            return None
+        return quad_from_contour(contour)
 
-        drift = float(np.max(np.linalg.norm(self.table.corners_image - quad, axis=1)))
-        short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
-        if drift <= self.cfg.table.recalibration_tolerance * short_side_px:
-            return
+    def _adopt_table(self, quad: np.ndarray, frame: np.ndarray, hsv: np.ndarray) -> bool:
+        """Validate a candidate table polygon, and switch to it if it holds up.
 
-        self.table = TableModel(
+        A cloth-coloured blob in a crowd shot will happily yield *some*
+        quadrilateral.  Requiring the quad to be almost entirely cloth is what
+        separates a table from a sponsor banner, and stops a bad recalibration
+        from replacing a good calibration with nonsense.
+        """
+        candidate = TableModel(
             corners_image=quad,
             length_in=self.cfg.table.length_in,
             width_in=self.cfg.table.width_in,
             ball_diameter_in=self.cfg.table.ball_diameter_in,
             has_pockets=self.table.has_pockets,
+            image_size=(frame.shape[1], frame.shape[0]),
         )
-        self.detector = BallDetector(self.cfg, self.table, self.cloth)
+        candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
+        coverage = candidate_detector.bed_cloth_coverage(self.cloth.mask(hsv))
+        if coverage < self.cfg.table.min_bed_coverage:
+            return False
+
+        self._tracks_created_total += max(0, self.tracker._next_id - 1)
+        self.table = candidate
+        self.detector = candidate_detector
         self.tracker = MultiObjectTracker(self.cfg, self.table, self.fps)
         self.event_detector = EventDetector(self.cfg, self.table)
         self.renderer = Renderer(self.cfg, self.table, self.cloth)
         self._finished_seen = 0
         self.recalibrations += 1
+        self._reference_coverage = None
+        self._recovery_quads.clear()
+        return True
+
+    def _try_recover(
+        self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
+    ) -> bool:
+        """Re-find the table after a cut, from several agreeing frames."""
+        tcfg = self.cfg.table
+        quad = self._fit_quad(hsv)
+        if quad is None:
+            return False
+
+        self._recovery_quads.append(quad)
+        need = max(1, tcfg.recovery_frames)
+        if len(self._recovery_quads) < need:
+            return False
+
+        recent = np.stack(self._recovery_quads[-need:], axis=0)
+        corners = np.median(recent, axis=0)
+        spread = float(np.max(np.linalg.norm(recent - corners, axis=2)))
+        # Still settling (a crossfade, a pan): drop the oldest and keep looking.
+        if spread > tcfg.recovery_max_spread_px:
+            self._recovery_quads.pop(0)
+            return False
+
+        return self._adopt_table(corners, frame, hsv)
+
+    def _maybe_recalibrate(
+        self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
+    ) -> bool:
+        """Periodic drift check while the table *is* in view.
+
+        A tripod gets nudged, a broadcast camera slowly zooms.  Either
+        invalidates the homography and with it every physical threshold, so the
+        geometry is re-checked every few seconds and only rebuilt if it has
+        actually moved.
+        """
+        quad = self._fit_quad(hsv)
+        if quad is None:
+            return False
+
+        drift = float(np.max(np.linalg.norm(self.table.corners_image - quad, axis=1)))
+        short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
+        if drift <= self.cfg.table.recalibration_tolerance * short_side_px:
+            return False
+        return self._adopt_table(quad, frame, hsv)
 
     # -- summary -----------------------------------------------------------
+
+    def event_summary(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for e in self.all_events:
+            counts[e.type.value] = counts.get(e.type.value, 0) + 1
+        return counts
 
     def summary(self) -> Dict[str, Any]:
         return {
             "table": self.table.to_dict(),
             "cloth": self.cloth.to_dict(),
-            "events": self.event_detector.summary(),
+            "events": self.event_summary(),
             "recalibrations": self.recalibrations,
-            "tracks_created": self.tracker._next_id - 1,
+            "frames_view_lost": self.view_lost_frames,
+            "tracks_created": self._tracks_created_total + max(0, self.tracker._next_id - 1),
             "tracks_alive": len(self.tracker.tracks),
             "tracks_finished": len(self.tracker.finished),
             "finished_reasons": _count(
@@ -234,7 +375,8 @@ def build_pipeline(
         from .table import estimate_cloth_color, table_from_corners
 
         cloth = estimate_cloth_color(frames, cfg)
-        table = table_from_corners(opts.table_corners, cfg)
+        h, w = frames[0].shape[:2]
+        table = table_from_corners(opts.table_corners, cfg, image_size=(w, h))
         result = CalibrationResult(
             table=table,
             cloth=cloth,
@@ -313,7 +455,7 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
                     f"frame {idx}  ({frames_done} processed, "
                     f"{frames_done / elapsed:.1f} fps)  "
                     f"tracks={len(result.tracks)}  "
-                    f"events={len(pipeline.event_detector.events)}"
+                    f"events={len(pipeline.all_events)}"
                 )
     finally:
         if sink is not None:
@@ -331,7 +473,7 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
         "wall_seconds": round(elapsed, 2),
         "processing_fps": round(frames_done / elapsed, 2) if elapsed > 0 else None,
         **pipeline.summary(),
-        "event_log": [e.to_dict() for e in pipeline.event_detector.events],
+        "event_log": [e.to_dict() for e in pipeline.all_events],
     }
     if opts.output:
         summary["output_video"] = str(opts.output)

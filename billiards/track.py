@@ -219,8 +219,15 @@ class MultiObjectTracker:
         gate = self._gate_inches(dt)
         n, m = len(self.tracks), len(detections)
         cost = np.full((n, m), FORBIDDEN, dtype=np.float64)
+        if n == 0 or m == 0:
+            # np.array([]) has shape (0,), not (0, 2), so the broadcast below
+            # would raise.  A frame with no detections is completely normal --
+            # an empty table, a heavy occlusion, a paused view.
+            return cost
 
-        det_xy = np.array([d.centre_table for d in detections], dtype=np.float64)
+        det_xy = np.array(
+            [d.centre_table for d in detections], dtype=np.float64
+        ).reshape(m, 2)
         for i, track in enumerate(self.tracks):
             pred = track.kf.position
             dist = np.linalg.norm(det_xy - pred, axis=1)

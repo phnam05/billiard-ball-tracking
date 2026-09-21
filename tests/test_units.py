@@ -168,22 +168,94 @@ def test_homography_round_trip():
 def test_corners_map_to_table_rectangle():
     table = _demo_table()
     mapped = table.image_to_table(table.corners_image)
-    assert np.allclose(
-        mapped, [[0, 0], [100, 0], [100, 50], [0, 50]], atol=1e-6
-    )
+    # Whichever way round the orientation test decides, the four corners must
+    # land on the four corners of a 100 x 50 rectangle.
+    assert np.allclose(sorted(map(tuple, np.round(mapped, 6))),
+                       sorted([(0.0, 0.0), (0.0, 50.0), (100.0, 0.0), (100.0, 50.0)]),
+                       atol=1e-6)
 
 
-def test_long_axis_orientation_is_detected():
-    """A table filmed portrait must still map its long side to length_in.
+def _project_table(yaw_deg: float, height_in: float = 60.0,
+                   distance_in: float = 95.0, focal_px: float = 1300.0,
+                   image_size=(1280, 720)):
+    """Project a real 100x50 table through a real pinhole camera.
 
-    The original code always assumed height = 2 * width, silently transposing
-    every landscape broadcast angle.
+    ``yaw_deg=0`` films the table from behind one end rail, so its 100-inch
+    length runs *into* the frame and is heavily foreshortened.  ``yaw_deg=90``
+    films it from the side, so the length runs across the frame.
     """
-    portrait = np.array([[200.0, 100.0], [400.0, 100.0], [430.0, 700.0], [170.0, 700.0]])
-    table = TableModel(portrait, length_in=100.0, width_in=50.0, ball_diameter_in=2.25)
-    mapped = table.image_to_table(portrait)
-    # The long image edge (top-left to bottom-left) must span length_in.
-    assert np.linalg.norm(mapped[0] - mapped[3]) == pytest.approx(100.0, abs=1e-6)
+    import cv2
+
+    L, W = 100.0, 50.0
+    corners = np.array(
+        [[0, 0, 0], [L, 0, 0], [L, W, 0], [0, W, 0]], dtype=np.float64
+    )
+    centre = np.array([L / 2.0, W / 2.0, 0.0])
+
+    yaw = np.deg2rad(yaw_deg)
+    # Camera sits `distance_in` from the table centre, `height_in` above it.
+    eye = centre + np.array(
+        [-distance_in * np.cos(yaw), -distance_in * np.sin(yaw), height_in]
+    )
+    forward = centre - eye
+    forward /= np.linalg.norm(forward)
+    world_up = np.array([0.0, 0.0, 1.0])
+    right = np.cross(forward, world_up)
+    right /= np.linalg.norm(right)
+    down = np.cross(forward, right)
+    R = np.vstack([right, down, forward])  # world -> camera
+
+    cam = (corners - eye) @ R.T
+    K = np.array(
+        [[focal_px, 0, image_size[0] / 2.0],
+         [0, focal_px, image_size[1] / 2.0],
+         [0, 0, 1.0]]
+    )
+    projected = cam @ K.T
+    return projected[:, :2] / projected[:, 2:3], image_size
+
+
+@pytest.mark.parametrize("yaw_deg", [0.0, 90.0, 35.0])
+def test_table_orientation_is_recovered_from_a_real_projection(yaw_deg):
+    """The scale error that broke real footage.
+
+    Filmed from behind an end rail, the 100-inch length of a pool table
+    subtends *fewer* pixels than the 50-inch cushion nearest the camera, so the
+    obvious "longer edge is the long side" rule picks the wrong axis and every
+    distance comes out a factor of two off. The orientation has to be decided by
+    which assignment a real camera could have produced, not by pixel counts.
+    """
+    from billiards.geometry import order_corners
+
+    projected, image_size = _project_table(yaw_deg)
+    table = TableModel(
+        order_corners(projected), length_in=100.0, width_in=50.0,
+        ball_diameter_in=2.25, image_size=image_size,
+    )
+    mapped = table.image_to_table(projected)
+
+    # Corner 0 -> (0,0) and corner 1 -> (100,0): the 100-inch edge of the real
+    # table must come back as a 100-inch edge.
+    assert np.linalg.norm(mapped[0] - mapped[1]) == pytest.approx(100.0, abs=0.5)
+    assert np.linalg.norm(mapped[1] - mapped[2]) == pytest.approx(50.0, abs=0.5)
+
+
+def test_sphere_scale_exceeds_flat_scale_under_perspective():
+    """A ball is a sphere, so it is not foreshortened the way a painted disc is.
+
+    Using the flat-plane scale under-predicts ball size on exactly the angle
+    pool is normally filmed from, which made every ball look like a multi-ball
+    cluster and get split in half.
+    """
+    projected, image_size = _project_table(0.0)
+    from billiards.geometry import order_corners
+
+    table = TableModel(
+        order_corners(projected), length_in=100.0, width_in=50.0,
+        ball_diameter_in=2.25, image_size=image_size,
+    )
+    centre_img = tuple(table.table_to_image([(50.0, 25.0)])[0])
+    assert table.sphere_scale_at(centre_img) > 1.3 * table.px_per_inch_at(centre_img)
 
 
 def test_perspective_scale_varies_across_the_table():

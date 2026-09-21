@@ -70,6 +70,34 @@ class TableConfig:
     #: Re-check the table geometry every N frames (0 disables).
     recalibration_interval: int = 150
 
+    #: Broadcast footage cuts between angles and to replays, and a phone on a
+    #: tripod gets nudged.  When that happens the homography is stale and every
+    #: physical threshold derived from it is meaningless, so the tracker must
+    #: notice rather than keep reporting balls in a crowd.
+    #:
+    #: The signal used is the one already computed each frame: how much of the
+    #: calibrated bed polygon is still cloth-coloured.  On the right shot it sits
+    #: near 1.0; after a cut it collapses.  Below this fraction of the
+    #: calibrated coverage, for this many consecutive frames, the view is
+    #: treated as changed and tracking pauses until the table is found again.
+    view_change_coverage_ratio: float = 0.55
+    view_change_patience: int = 3
+
+    #: After a cut, how many consecutive frames must agree on the new table
+    #: before it is adopted.  One frame during a crossfade is a poor basis for
+    #: a homography that everything downstream depends on.
+    recovery_frames: int = 5
+
+    #: How far, in pixels, those frames' corners may disagree and still count as
+    #: agreement.  Above this the view is still settling (a pan, a dissolve).
+    recovery_max_spread_px: float = 12.0
+
+    #: A candidate table polygon is only adopted if at least this fraction of it
+    #: is cloth-coloured.  A crowd shot will always yield *some* quadrilateral
+    #: from *some* blob; this is what distinguishes a table from a sponsor
+    #: banner, and stops a bad recalibration from overwriting a good one.
+    min_bed_coverage: float = 0.72
+
     #: Shrink the detected table polygon by this many ball diameters before
     #: looking for balls, so cushions/rails/pocket jaws do not create blobs.
     bed_margin_ball_diameters: float = 0.35
@@ -109,12 +137,34 @@ class ClothConfig:
     min_sat_halfwidth: float = 40.0
     min_val_halfwidth: float = 70.0
 
+    #: Ceilings.  Without these, a frame where the background shares the cloth's
+    #: hue -- blue banners behind a blue table, which is most tournament
+    #: footage -- gives a robust spread so wide the "cloth" window accepts the
+    #: entire image.  A real cloth is one colour; these bound how far that can
+    #: be stretched before the estimate is simply wrong.
+    max_hue_halfwidth: float = 22.0
+    max_sat_halfwidth: float = 75.0
+    max_val_halfwidth: float = 85.0
+
+    #: Rounds of re-estimation restricted to the region the previous estimate
+    #: selected.  The first pass sees the whole frame, background included; each
+    #: refinement re-measures using only pixels inside the largest region that
+    #: survived, which converges onto the bed itself.
+    refine_iterations: int = 2
+
     #: The value window is deliberately asymmetric.  A shadow can only make the
     #: cloth *darker*, never brighter, and the shadow a ball casts is what welds
     #: neighbouring balls into one blob if it is treated as foreground.  Hue and
     #: saturation stay tight, so widening downwards costs almost nothing: a dark
     #: ball is excluded by its hue or its low saturation, not by its brightness.
     shadow_value_factor: float = 2.2
+
+    #: Hard floor on that downward extension, as a fraction of the measured
+    #: cloth value.  A cast shadow on cloth is a *multiplicative* darkening and
+    #: bottoms out around half the lit value; anything darker is an object, not
+    #: a shadow.  Without this floor the widened window swallows dark balls
+    #: whole -- on grey cloth, the black ball simply never appears.
+    shadow_min_value_ratio: float = 0.55
 
     #: Pixels darker / less saturated than this are never cloth.  Kills shadow
     #: under the rail and the black bars around letterboxed video.
@@ -138,7 +188,10 @@ class DetectorConfig:
     #: A blob must be within [min, max] x the expected single-ball area to be
     #: considered.  The generous upper bound lets clusters through; they are
     #: then split by watershed rather than discarded.
-    min_area_ratio: float = 0.22
+    #: A blob below this fraction of the expected ball area is a cushion
+    #: sliver, a pocket edge or a piece of chalk, not a ball.  Even a ball
+    #: half-hidden behind another still covers about half its area.
+    min_area_ratio: float = 0.33
     #: Generous on purpose: a full rack of 15 balls plus their shadows is a
     #: single ~20x blob, and rejecting it outright (the old ceiling of 9 did
     #: exactly that) means the entire rack is invisible until it breaks apart.

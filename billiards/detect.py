@@ -131,6 +131,50 @@ def sample_signature(
 # --------------------------------------------------------------------------
 
 
+def _colour_gradient(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Di Zenzo multi-channel gradient: direction and magnitude of colour change.
+
+    Two touching balls of different colours can have almost no *brightness* step
+    between them -- a blue ball against a red one at the same lightness gives a
+    grayscale edge close to zero -- while the colour step is obvious.  Since the
+    cluster splitter relies on each ball's circular edge voting for its own
+    centre, edges it cannot see are balls it cannot find, which is precisely the
+    situation inside a rack.
+
+    The structure tensor J = sum_c (grad c)(grad c)^T is summed over channels;
+    its dominant eigenvector is the direction of greatest colour change and the
+    corresponding eigenvalue its strength.  The direction is only defined up to
+    sign, which costs nothing here: the radial-symmetry vote is cast both ways.
+    """
+    if image.ndim == 2:
+        gx = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=3)
+        return gx, gy, cv2.magnitude(gx, gy)
+
+    gxx = np.zeros(image.shape[:2], dtype=np.float32)
+    gyy = np.zeros(image.shape[:2], dtype=np.float32)
+    gxy = np.zeros(image.shape[:2], dtype=np.float32)
+    for c in range(image.shape[2]):
+        channel = image[:, :, c]
+        cx = cv2.Sobel(channel, cv2.CV_32F, 1, 0, ksize=3)
+        cy = cv2.Sobel(channel, cv2.CV_32F, 0, 1, ksize=3)
+        gxx += cx * cx
+        gyy += cy * cy
+        gxy += cx * cy
+
+    diff = gxx - gyy
+    root = np.sqrt(diff * diff + 4.0 * gxy * gxy)
+    lambda_max = 0.5 * (gxx + gyy + root)
+    magnitude = np.sqrt(np.maximum(lambda_max, 0.0))
+
+    theta = 0.5 * np.arctan2(2.0 * gxy, diff)
+    return (
+        (magnitude * np.cos(theta)).astype(np.float32),
+        (magnitude * np.sin(theta)).astype(np.float32),
+        magnitude.astype(np.float32),
+    )
+
+
 @dataclass
 class Detection:
     centre_image: Tuple[float, float]
@@ -192,29 +236,49 @@ class BallDetector:
             )
             if radius_in > 0:
                 pockets = self.table.pockets_table()
-                if pockets.size:
-                    centres = self.table.table_to_image(pockets)
-                    for centre in centres:
-                        r_px = int(
-                            round(radius_in * self.table.px_per_inch_at(tuple(centre)))
-                        )
-                        if r_px > 0:
-                            cv2.circle(
-                                mask,
-                                (int(round(centre[0])), int(round(centre[1]))),
-                                r_px,
-                                0,
-                                -1,
-                            )
+                # Draw the pocket as the *projection* of a circle on the cloth,
+                # not as a circle in the image.  A pocket is flat, so at a
+                # grazing angle its image is a markedly squashed ellipse; a
+                # round exclusion zone big enough to cover it would also swallow
+                # every ball resting near that rail.
+                angles = np.linspace(0.0, 2.0 * np.pi, 24, endpoint=False)
+                for pocket in pockets:
+                    ring = np.column_stack(
+                        [
+                            pocket[0] + radius_in * np.cos(angles),
+                            pocket[1] + radius_in * np.sin(angles),
+                        ]
+                    )
+                    poly = self.table.table_to_image(ring)
+                    if not np.all(np.isfinite(poly)):
+                        continue
+                    cv2.fillPoly(mask, [poly.astype(np.int32)], 0)
             self._bed_mask = mask
             self._bed_shape = shape[:2]
         return self._bed_mask
 
-    def foreground_mask(self, frame: np.ndarray, hsv: Optional[np.ndarray] = None) -> np.ndarray:
+    def bed_cloth_coverage(self, cloth_mask: np.ndarray) -> float:
+        """Fraction of the bed polygon that still looks like cloth.
+
+        Near 1.0 while the calibrated table is on screen, and it collapses the
+        moment the broadcast cuts to another angle or a replay.  That makes it a
+        direct, physically meaningful "is the table still where we think it is?"
+        test, computed from a mask the detector needs anyway.
+        """
+        bed = self.bed_mask(cloth_mask.shape)
+        bed_area = int(np.count_nonzero(bed))
+        if bed_area == 0:
+            return 0.0
+        overlap = int(np.count_nonzero(cv2.bitwise_and(cloth_mask, bed)))
+        return overlap / float(bed_area)
+
+    def foreground_mask(self, frame: np.ndarray, hsv: Optional[np.ndarray] = None,
+                        cloth_mask: Optional[np.ndarray] = None) -> np.ndarray:
         """Everything on the bed that is not cloth."""
-        if hsv is None:
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        cloth_mask = self.cloth.mask(hsv)
+        if cloth_mask is None:
+            if hsv is None:
+                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            cloth_mask = self.cloth.mask(hsv)
 
         r_px = self.table.expected_ball_radius_px(
             tuple(self.table.corners_image.mean(axis=0))
@@ -241,12 +305,12 @@ class BallDetector:
 
     # -- main entry point --------------------------------------------------
 
-    def detect(self, frame: np.ndarray, hsv: Optional[np.ndarray] = None) -> List[Detection]:
+    def detect(self, frame: np.ndarray, hsv: Optional[np.ndarray] = None,
+               cloth_mask: Optional[np.ndarray] = None) -> List[Detection]:
         if hsv is None:
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        fg = self.foreground_mask(frame, hsv)
+        fg = self.foreground_mask(frame, hsv, cloth_mask)
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         num, labels, stats, centroids = cv2.connectedComponentsWithStats(fg, 8)
         detections: List[Detection] = []
@@ -270,7 +334,7 @@ class BallDetector:
 
             if ratio >= self.cfg.detector.split_area_ratio:
                 centres = self._split_cluster(
-                    component, r_expected, offset=(x, y), gray=gray, area=int(area)
+                    component, r_expected, offset=(x, y), colour=lab, area=int(area)
                 )
                 for c in centres:
                     det = self._make_detection(
@@ -388,7 +452,7 @@ class BallDetector:
         component: np.ndarray,
         r_expected: float,
         offset: Tuple[int, int],
-        gray: np.ndarray,
+        colour: np.ndarray,
         area: int,
     ) -> List[Tuple[float, float]]:
         """Separate touching balls inside one blob.
@@ -423,7 +487,7 @@ class BallDetector:
 
         dt_centres, dt_scores = self._dt_peaks(dist, pad, r_expected, offset)
         rs_centres, rs_scores = self._radial_symmetry_peaks(
-            component, r_expected, offset, gray
+            component, r_expected, offset, colour
         )
 
         # Every radial-symmetry candidate must also sit somewhere thick enough
@@ -507,7 +571,7 @@ class BallDetector:
         component: np.ndarray,
         r_expected: float,
         offset: Tuple[int, int],
-        gray: np.ndarray,
+        colour: np.ndarray,
     ) -> Tuple[List[Tuple[float, float]], List[float]]:
         """Fast radial symmetry voting at the known ball radius.
 
@@ -522,16 +586,14 @@ class BallDetector:
         pad = int(np.ceil(r_expected)) + 3
         x0 = max(0, offset[0] - pad)
         y0 = max(0, offset[1] - pad)
-        x1 = min(gray.shape[1], offset[0] + w + pad)
-        y1 = min(gray.shape[0], offset[1] + h + pad)
-        roi = gray[y0:y1, x0:x1]
+        x1 = min(colour.shape[1], offset[0] + w + pad)
+        y1 = min(colour.shape[0], offset[1] + h + pad)
+        roi = colour[y0:y1, x0:x1]
         if roi.size == 0 or min(roi.shape[:2]) < 5:
             return [], []
 
         roi_blur = cv2.GaussianBlur(roi, (0, 0), max(0.8, 0.14 * r_expected))
-        gx = cv2.Sobel(roi_blur, cv2.CV_32F, 1, 0, ksize=3)
-        gy = cv2.Sobel(roi_blur, cv2.CV_32F, 0, 1, ksize=3)
-        mag = cv2.magnitude(gx, gy)
+        gx, gy, mag = _colour_gradient(roi_blur)
         peak_mag = float(mag.max())
         if peak_mag <= 1e-6:
             return [], []

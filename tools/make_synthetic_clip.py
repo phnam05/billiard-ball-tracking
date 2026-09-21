@@ -253,26 +253,40 @@ class Renderer:
 
     # -- per frame ---------------------------------------------------------
 
+    def sphere_radius_px(self, p: Sequence[float], eps: float = 0.5) -> float:
+        """Apparent radius of a ball at table point ``p``, in image pixels.
+
+        A ball is a sphere, so its silhouette stays circular however obliquely
+        the table is viewed -- its size follows the magnification *across* the
+        line of sight, which is the largest singular value of the local
+        table-to-image Jacobian.  Drawing balls as flat discs painted on the
+        cloth (which an earlier version of this simulator did) squashes them
+        under perspective and produces footage no real camera would record.
+        """
+        base = np.array(self.table_to_image(p))
+        dx = np.array(self.table_to_image((p[0] + eps, p[1]))) - base
+        dy = np.array(self.table_to_image((p[0], p[1] + eps))) - base
+        J = np.column_stack([dx / eps, dy / eps])
+        singular = np.linalg.svd(J, compute_uv=False)
+        return float(BALL_R * singular[0])
+
     def render(self, balls: Sequence[Ball], cue_line: Optional[Tuple] = None) -> np.ndarray:
         canvas = self._background.copy()
-        r_px = int(round(BALL_R * self.ppi))
 
+        # Shadows are flat on the cloth, so they belong on the canvas and get
+        # warped with it.
+        shadow_r = int(round(BALL_R * self.ppi))
+        # A shadow is a multiplicative darkening of whatever it falls on, not a
+        # fixed dark colour.  Painting it as near-black (as an earlier version
+        # did) produces a shadow far darker than any real one, which is not a
+        # fair test of how a detector separates shadow from dark ball.
+        shadow_colour = tuple(int(c * 0.72) for c in self.cloth)
         for b in balls:
             if not b.active:
                 continue
             c = self.table_to_canvas(b.pos)
-            centre = (int(round(c[0])), int(round(c[1])))
-            # Contact shadow.
-            cv2.circle(canvas, (centre[0] + 2, centre[1] + 3), r_px,
-                       (30, 40, 26), -1, cv2.LINE_AA)
-            cv2.circle(canvas, centre, r_px, b.colour, -1, cv2.LINE_AA)
-            if b.striped:
-                cv2.ellipse(canvas, centre, (r_px, int(r_px * 0.42)), 0, 0, 360,
-                            (250, 250, 250), -1, cv2.LINE_AA)
-                cv2.circle(canvas, centre, r_px, b.colour, 1, cv2.LINE_AA)
-            # Specular highlight.
-            cv2.circle(canvas, (centre[0] - r_px // 3, centre[1] - r_px // 3),
-                       max(1, r_px // 4), (255, 255, 255), -1, cv2.LINE_AA)
+            cv2.circle(canvas, (int(round(c[0])) + 2, int(round(c[1])) + 3),
+                       shadow_r, shadow_colour, -1, cv2.LINE_AA)
 
         if cue_line is not None:
             p0 = self.table_to_canvas(cue_line[0])
@@ -283,6 +297,23 @@ class Renderer:
         frame = cv2.warpPerspective(
             canvas, self.H, self.out_size, borderValue=(28, 30, 34)
         )
+
+        # Balls are drawn in image space, back to front, so a nearer ball
+        # correctly occludes a farther one.
+        visible = [b for b in balls if b.active]
+        visible.sort(key=lambda b: self.table_to_image(b.pos)[1])
+        for b in visible:
+            centre_f = self.table_to_image(b.pos)
+            centre = (int(round(centre_f[0])), int(round(centre_f[1])))
+            r_px = max(2, int(round(self.sphere_radius_px(b.pos))))
+            cv2.circle(frame, centre, r_px, b.colour, -1, cv2.LINE_AA)
+            if b.striped:
+                cv2.ellipse(frame, centre, (r_px, max(1, int(r_px * 0.42))), 0,
+                            0, 360, (250, 250, 250), -1, cv2.LINE_AA)
+                cv2.circle(frame, centre, r_px, b.colour, 1, cv2.LINE_AA)
+            cv2.circle(frame, (centre[0] - r_px // 3, centre[1] - r_px // 3),
+                       max(1, r_px // 4), (255, 255, 255), -1, cv2.LINE_AA)
+
         frame = (frame.astype(np.float32) * self._vignette)
         frame += self.rng.normal(0, 3.0, frame.shape)
         frame = np.clip(frame, 0, 255).astype(np.uint8)

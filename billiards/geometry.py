@@ -241,6 +241,53 @@ def quad_from_contour(contour: np.ndarray) -> Optional[np.ndarray]:
 # --------------------------------------------------------------------------
 
 
+def focal_lengths_for_homography(
+    corners_image: np.ndarray, dst_table: np.ndarray, principal: Tuple[float, float]
+) -> Tuple[float, float]:
+    """Two independent estimates of the squared focal length, in px^2.
+
+    For a homography ``H = K [r1 r2 t]`` mapping a world plane to the image, the
+    rotation columns are orthonormal.  That gives two constraints,
+    ``r1 . r2 = 0`` and ``|r1| = |r2|``, each of which pins down ``f`` on its
+    own.  If the plane really is a rectangle of the assumed shape, both come out
+    positive and agree with each other.  If the assumed shape is wrong -- for
+    instance a 2:1 table matched to its own corners the other way round -- they
+    do not.
+
+    Returns ``(f_squared_from_orthogonality, f_squared_from_equal_norms)``, with
+    NaN where the expression is degenerate (a fronto-parallel view, where the
+    focal length genuinely cannot be recovered).
+
+    Only the **second** value can tell one table orientation from the other.
+    The orthogonality expression is invariant under swapping and rescaling the
+    two columns, which is exactly what changing the assumed orientation does, so
+    it returns the same number either way.  The equal-norms constraint is the
+    one that depends on the assumed *aspect ratio*, and therefore the one that
+    knows whether the long side of the table runs across the frame or into it.
+    """
+    H = cv2.getPerspectiveTransform(
+        dst_table.astype(np.float32), corners_image.astype(np.float32)
+    ).astype(np.float64)
+    shift = np.array(
+        [[1.0, 0.0, -principal[0]], [0.0, 1.0, -principal[1]], [0.0, 0.0, 1.0]]
+    )
+    Hn = shift @ H
+    h1, h2 = Hn[:, 0], Hn[:, 1]
+
+    den_a = h1[2] * h2[2]
+    f2_a = (
+        -(h1[0] * h2[0] + h1[1] * h2[1]) / den_a if abs(den_a) > 1e-12 else np.nan
+    )
+
+    den_b = h1[2] ** 2 - h2[2] ** 2
+    f2_b = (
+        ((h2[0] ** 2 + h2[1] ** 2) - (h1[0] ** 2 + h1[1] ** 2)) / den_b
+        if abs(den_b) > 1e-12
+        else np.nan
+    )
+    return float(f2_a), float(f2_b)
+
+
 @dataclass
 class TableModel:
     """A calibrated table: image corners plus the image<->table homography."""
@@ -250,6 +297,9 @@ class TableModel:
     width_in: float
     ball_diameter_in: float
     has_pockets: bool = True
+    #: (width, height) of the frame these corners came from.  Used to place the
+    #: principal point when deciding which way round the table is.
+    image_size: Optional[Tuple[int, int]] = None
 
     def __post_init__(self) -> None:
         self.corners_image = np.asarray(self.corners_image, dtype=np.float64).reshape(4, 2)
@@ -261,29 +311,67 @@ class TableModel:
 
     # -- orientation -------------------------------------------------------
 
+    def _orientation_candidates(self) -> Tuple[np.ndarray, np.ndarray]:
+        L, W = self.length_in, self.width_in
+        along_top = np.array([[0, 0], [L, 0], [L, W], [0, W]], dtype=np.float64)
+        along_side = np.array([[0, 0], [0, W], [L, W], [L, 0]], dtype=np.float64)
+        return along_top, along_side
+
     def _table_corner_targets(self) -> np.ndarray:
         """Where the four image corners land in table inches.
 
-        Decides which image axis is the table's long axis.  Under perspective
-        the physically longer side almost always subtends more pixels, so the
-        longer image edge is the length.  The original code always assumed
-        ``height = 2 * width``, which silently transposed every broadcast-angle
-        clip (where the table is wide in frame, not tall).
-        """
-        tl, tr, br, bl = self.corners_image
-        span_top_bottom = 0.5 * (
-            np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)
-        )  # "horizontal" pair
-        span_left_right = 0.5 * (
-            np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)
-        )  # "vertical" pair
+        Deciding which image axis is the table's *long* axis is not the trivial
+        question it looks like.  The obvious rule -- "the physically longer side
+        subtends more pixels" -- is wrong exactly when it matters most: filmed
+        from behind one end rail, which is the standard pool broadcast angle,
+        the 100-inch length is foreshortened to fewer pixels than the 50-inch
+        near cushion.  Following that rule there gets the scale wrong by a
+        factor of two, which then makes every ball appear twice its expected
+        size, so each one is treated as a cluster and split in half.
 
-        L, W = self.length_in, self.width_in
-        if span_top_bottom >= span_left_right:
-            # TL->TR is the long side.
-            return np.array([[0, 0], [L, 0], [L, W], [0, W]], dtype=np.float64)
-        # TL->BL is the long side; rotate the target rectangle a quarter turn.
-        return np.array([[0, 0], [0, W], [L, W], [L, 0]], dtype=np.float64)
+        So instead: try both assignments, and keep the one that a real camera
+        could actually have produced.  A homography onto a rectangle of the
+        right shape yields a positive, self-consistent focal length; the wrong
+        shape does not.  The pixel-span rule survives only as a fallback for
+        near-fronto-parallel views, where the focal length is genuinely not
+        recoverable -- and where, conveniently, the rule is also correct.
+        """
+        along_top, along_side = self._orientation_candidates()
+
+        if self.image_size is not None:
+            principal = (self.image_size[0] / 2.0, self.image_size[1] / 2.0)
+            diag = float(np.hypot(*self.image_size))
+        else:
+            principal = tuple(self.corners_image.mean(axis=0))
+            span = self.corners_image.max(axis=0) - self.corners_image.min(axis=0)
+            diag = float(np.hypot(*span))
+
+        # Plausible focal lengths for real footage span roughly a fisheye to a
+        # long broadcast lens.  Anything outside that is a numerical artefact.
+        f_lo, f_hi = 0.25 * diag, 25.0 * diag
+        reference = 1.1 * diag  # a fairly ordinary lens, used only to break ties
+
+        viable = []
+        for dst in (along_top, along_side):
+            _, f2 = focal_lengths_for_homography(self.corners_image, dst, principal)
+            if not np.isfinite(f2) or f2 <= 0:
+                continue
+            f = float(np.sqrt(f2))
+            if not (f_lo <= f <= f_hi):
+                continue
+            viable.append((abs(np.log(f / reference)), dst))
+
+        if viable:
+            viable.sort(key=lambda item: item[0])
+            return viable[0][1]
+
+        # Fronto-parallel or numerically degenerate: the focal length is not
+        # recoverable, but in that regime foreshortening is weak and the simple
+        # pixel-span rule is reliable.
+        tl, tr, br, bl = self.corners_image
+        span_top_bottom = 0.5 * (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl))
+        span_left_right = 0.5 * (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr))
+        return along_top if span_top_bottom >= span_left_right else along_side
 
     # -- coordinate transforms --------------------------------------------
 
@@ -307,23 +395,58 @@ class TableModel:
 
     # -- perspective-aware scale ------------------------------------------
 
-    def px_per_inch_at(self, image_pt: Point) -> float:
-        """Local image scale, in pixels per table inch, at an image point.
+    def local_jacobian(self, image_pt: Point, eps: float = 0.5) -> np.ndarray:
+        """2x2 derivative of the table->image map at an image point.
 
-        Balls near the camera cover many more pixels than balls at the far
-        cushion.  A single global "ball area" threshold therefore cannot work on
-        an angled view; this makes the size gate correct everywhere in frame.
+        Its singular values are the local magnification along the two principal
+        directions of the projection.  Under a grazing camera angle they differ
+        by a large factor: one inch across the view covers far more pixels than
+        one inch into it.
         """
         t = self.image_to_table([image_pt])[0]
-        probe = np.array([t, t + (1.0, 0.0), t + (0.0, 1.0)], dtype=np.float64)
+        probe = np.array(
+            [t, t + (eps, 0.0), t + (0.0, eps)], dtype=np.float64
+        )
         back = self.table_to_image(probe)
-        dx = float(np.linalg.norm(back[1] - back[0]))
-        dy = float(np.linalg.norm(back[2] - back[0]))
-        scale = 0.5 * (dx + dy)
-        return float(max(scale, 1e-6))
+        return np.column_stack(
+            [(back[1] - back[0]) / eps, (back[2] - back[0]) / eps]
+        )
+
+    def px_per_inch_at(self, image_pt: Point) -> float:
+        """Area-preserving local scale, in pixels per table inch.
+
+        This is ``sqrt(|det J|)``, the right scale for a **flat** feature lying
+        on the cloth -- a pocket, a spot, a marking.
+        """
+        det = abs(float(np.linalg.det(self.local_jacobian(image_pt))))
+        return float(max(np.sqrt(det), 1e-6))
+
+    def sphere_scale_at(self, image_pt: Point) -> float:
+        """Local scale governing the apparent size of a **sphere**, in px/inch.
+
+        A billiard ball is not a disc painted on the cloth, and the difference
+        matters more than it sounds.  A flat disc viewed at a grazing angle is
+        squashed into a thin ellipse; a sphere is not squashed at all -- its
+        silhouette is always a circle, of angular radius R/d, so its image
+        radius follows the magnification *across* the line of sight rather than
+        the foreshortened one.
+
+        Using the flat-disc scale therefore under-predicts ball size badly on
+        exactly the camera angle pool is normally filmed from (behind one end
+        rail, looking down the table).  Measured on real broadcast footage, it
+        was out by 40-80%, which made every single ball look like a cluster
+        roughly three times its expected area -- so the detector "split" each
+        ball into two phantom halves.
+
+        The largest singular value of the local Jacobian is that across-view
+        magnification.
+        """
+        J = self.local_jacobian(image_pt)
+        singular = np.linalg.svd(J, compute_uv=False)
+        return float(max(float(singular[0]), 1e-6))
 
     def expected_ball_radius_px(self, image_pt: Point) -> float:
-        return self.ball_radius_in * self.px_per_inch_at(image_pt)
+        return self.ball_radius_in * self.sphere_scale_at(image_pt)
 
     def mean_px_per_inch(self) -> float:
         centre = self.corners_image.mean(axis=0)
