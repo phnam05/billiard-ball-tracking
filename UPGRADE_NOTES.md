@@ -226,7 +226,7 @@ potted #7 -- 5.4s`.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **40 tests**, including end-to-end accuracy assertions and a camera-cut test.
+* **44 tests**, including end-to-end accuracy assertions and a camera-cut test.
 * Works **headless**.
 
 ---
@@ -321,5 +321,5 @@ tools/
   make_synthetic_clip.py   physics simulator + renderer + ground truth
   evaluate.py              MOT scoring
 legacy/          the original v1 code, kept for comparison
-tests/           40 tests
+tests/           44 tests
 ```

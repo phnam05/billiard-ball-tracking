@@ -69,7 +69,7 @@ class TrackingPipeline:
         self.event_detector = EventDetector(cfg, table)
         self.renderer = Renderer(cfg, table, cloth)
         self.recalibrations = 0
-        self._last_frame_index: Optional[int] = None
+        self.last_frame_index: Optional[int] = None
         self._finished_seen = 0
 
         #: Bed cloth coverage when the calibration was fresh, used as the
@@ -96,11 +96,11 @@ class TrackingPipeline:
         self, frame: np.ndarray, frame_index: int, annotate: bool = True
     ) -> FrameResult:
         t_s = frame_index / self.fps
-        if self._last_frame_index is None:
+        if self.last_frame_index is None:
             dt = 1.0 / self.fps
         else:
-            dt = max(1, frame_index - self._last_frame_index) / self.fps
-        self._last_frame_index = frame_index
+            dt = max(1, frame_index - self.last_frame_index) / self.fps
+        self.last_frame_index = frame_index
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         cloth_mask = self.cloth.mask(hsv)
@@ -111,7 +111,7 @@ class TrackingPipeline:
             # and trajectories over the crowd.
             annotated = frame.copy() if annotate else None
             if annotated is not None:
-                self.renderer._draw_hud(annotated, self.hud(frame_index, t_s))
+                self.renderer.draw_hud(annotated, self.hud(frame_index, t_s))
             return FrameResult(frame_index, t_s, [], [], [], annotated)
 
         if (
@@ -256,7 +256,7 @@ class TrackingPipeline:
         if coverage < self.cfg.table.min_bed_coverage:
             return False
 
-        self._tracks_created_total += max(0, self.tracker._next_id - 1)
+        self._tracks_created_total += self.tracker.tracks_created
         self.table = candidate
         self.detector = candidate_detector
         self.tracker = MultiObjectTracker(self.cfg, self.table, self.fps)
@@ -328,7 +328,7 @@ class TrackingPipeline:
             "recalibrations": self.recalibrations,
             "frames_view_lost": self.view_lost_frames,
             "shots": len(self.shots.shots),
-            "tracks_created": self._tracks_created_total + max(0, self.tracker._next_id - 1),
+            "tracks_created": self._tracks_created_total + self.tracker.tracks_created,
             "tracks_alive": len(self.tracker.tracks),
             "tracks_finished": len(self.tracker.finished),
             "finished_reasons": _count(
@@ -464,8 +464,8 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
                 )
     finally:
         pipeline.shots.finish(
-            pipeline._last_frame_index or 0,
-            (pipeline._last_frame_index or 0) / pipeline.fps,
+            pipeline.last_frame_index or 0,
+            (pipeline.last_frame_index or 0) / pipeline.fps,
         )
         if sink is not None:
             sink.close()

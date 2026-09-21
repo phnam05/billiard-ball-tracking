@@ -158,7 +158,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 40
+pytest -q                  # all 44
 pytest -q -m "not slow"    # unit tests only
 ```
 

@@ -323,6 +323,48 @@ def test_tracking_pauses_when_the_table_leaves_the_view(synthetic_clip, tmp_path
         assert per_frame.get(f, 0) == 0, f"tracks reported on frame {f} with no table"
 
 
+class TestFailsClearly:
+    """A tool that needs no tuning still has to say what went wrong when it
+    genuinely cannot proceed.  These pin the wording, because a vague error is
+    exactly what sends someone back to editing thresholds by hand."""
+
+    def test_missing_file(self):
+        from billiards.cli import main
+
+        assert main(["track", "definitely_not_here.mp4"]) == 1
+
+    def test_no_table_in_the_video(self, tmp_path):
+        import cv2
+
+        rng = np.random.default_rng(1)
+        path = tmp_path / "noise.mp4"
+        writer = cv2.VideoWriter(
+            str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (640, 360)
+        )
+        for _ in range(40):
+            writer.write(rng.integers(0, 255, (360, 640, 3), dtype=np.uint8))
+        writer.release()
+
+        with pytest.raises(RuntimeError, match="Table calibration failed"):
+            run(Config(), RunOptions(video=str(path), progress_every=0))
+
+    def test_start_time_past_the_end(self, synthetic_clip):
+        with pytest.raises(RuntimeError, match="Could not read any frames"):
+            run(
+                Config(),
+                RunOptions(
+                    video=synthetic_clip["video"],
+                    start_frame=10_000,
+                    progress_every=0,
+                ),
+            )
+
+    def test_a_v1_style_config_key_is_named_in_the_error(self):
+        # Someone porting an old config will reach for the HSV bounds first.
+        with pytest.raises(ValueError, match="lower_bound"):
+            Config.from_dict({"detector": {"lower_bound": [30, 20, 200]}})
+
+
 @pytest.mark.slow
 def test_manual_table_corners_are_respected(synthetic_clip):
     from billiards.pipeline import build_pipeline

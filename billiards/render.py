@@ -81,7 +81,7 @@ class Renderer:
         if r.overhead_panel:
             self._blit_overhead(out, tracks, recent_events)
         if r.draw_hud and hud:
-            self._draw_hud(out, hud)
+            self.draw_hud(out, hud)
         return out
 
     def _draw_table_outline(self, img: np.ndarray) -> None:
@@ -175,7 +175,9 @@ class Renderer:
             else:
                 cv2.drawMarker(img, c, colour, cv2.MARKER_TRIANGLE_UP, 12, 2)
 
-    def _draw_hud(self, img: np.ndarray, hud: Dict[str, object]) -> None:
+    def draw_hud(self, img: np.ndarray, hud: Dict[str, object]) -> None:
+        """Overlay the status box.  Public because the pipeline draws it on its
+        own when tracking is paused and there is nothing else to render."""
         lines = [f"{k}: {v}" for k, v in hud.items()]
         scale = self.cfg.render.font_scale
         pad = 6

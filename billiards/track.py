@@ -51,7 +51,7 @@ class Track:
         "track_id", "kf", "signature", "state", "hits", "age",
         "time_since_update", "trail", "last_image_xy", "last_radius_px",
         "birth_frame", "death_frame", "death_reason", "_trail_cap",
-        "colour_locked", "last_observed_xy",
+        "last_observed_xy",
     )
 
     def __init__(
@@ -85,7 +85,6 @@ class Track:
         self.birth_frame = frame
         self.death_frame: Optional[int] = None
         self.death_reason: Optional[str] = None
-        self.colour_locked = False
 
     # -- properties --------------------------------------------------------
 
@@ -342,6 +341,10 @@ class MultiObjectTracker:
         if not candidates:
             return None
         return max(candidates, key=lambda t: (t.signature.white_fraction, t.hits))
+
+    @property
+    def tracks_created(self) -> int:
+        return self._next_id - 1
 
     def reset_trails(self) -> None:
         for track in self.tracks:
