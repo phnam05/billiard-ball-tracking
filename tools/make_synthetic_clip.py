@@ -306,11 +306,17 @@ class Renderer:
             centre_f = self.table_to_image(b.pos)
             centre = (int(round(centre_f[0])), int(round(centre_f[1])))
             r_px = max(2, int(round(self.sphere_radius_px(b.pos))))
-            cv2.circle(frame, centre, r_px, b.colour, -1, cv2.LINE_AA)
             if b.striped:
-                cv2.ellipse(frame, centre, (r_px, max(1, int(r_px * 0.42))), 0,
-                            0, 360, (250, 250, 250), -1, cv2.LINE_AA)
-                cv2.circle(frame, centre, r_px, b.colour, 1, cv2.LINE_AA)
+                # A real striped ball is a *white* ball carrying one coloured
+                # band, not a coloured ball with a white band.  Rendering it the
+                # wrong way round makes every stripe read as almost pure colour
+                # and gives the classifier nothing to work with.
+                cv2.circle(frame, centre, r_px, (245, 245, 247), -1, cv2.LINE_AA)
+                cv2.ellipse(frame, centre, (r_px, max(1, int(r_px * 0.55))), 0,
+                            0, 360, b.colour, -1, cv2.LINE_AA)
+                cv2.circle(frame, centre, r_px, (215, 215, 218), 1, cv2.LINE_AA)
+            else:
+                cv2.circle(frame, centre, r_px, b.colour, -1, cv2.LINE_AA)
             cv2.circle(frame, (centre[0] - r_px // 3, centre[1] - r_px // 3),
                        max(1, r_px // 4), (255, 255, 255), -1, cv2.LINE_AA)
 

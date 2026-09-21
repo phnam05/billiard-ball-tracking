@@ -7,7 +7,12 @@ The cloth colour is measured from the video, the table is found and rectified,
 and from then on every threshold in the pipeline is expressed in inches rather
 than pixels. That is what makes it work on a new clip without being re-tuned.
 
-![gorst](https://github.com/phnam05/billiard-ball-tracking/assets/96247259/a84f2cf8-edcf-4fde-abe2-a6204b47cb77)
+![tracking demo](docs/images/demo_synthetic.png)
+
+*Nine balls tracked through a break: per-ball trajectories, a contact point, and
+a top-down diagram drawn from the tracker's own table coordinates. The clip is
+the built-in physics simulator, so every position here is checkable against
+ground truth.*
 
 > Originally a final project for ENG 301 – Computer Vision at Fulbright
 > University Vietnam, Spring 2024. Rewritten since; see
@@ -83,19 +88,27 @@ detections ──► Hungarian assignment (distance + colour) ──► Kalman f
                     └──► collisions · cushions · pots · shot starts
 ```
 
-1. **Calibrate.** Measure the cloth colour robustly across the clip; fit the
-   four cushions as lines and intersect them for the corners (pockets eat the
-   actual corners, so fitting beats picking a contour point); build the
-   image↔table homography.
+1. **Calibrate.** Measure the cloth colour robustly across the clip, then
+   re-measure inside the region that selects (otherwise a background sharing the
+   cloth's hue widens the window until it accepts everything). Fit the four
+   cushions as lines and intersect them for the corners, since pockets eat the
+   actual corners. Decide which way round the table is by which assignment a
+   real camera could have produced — filmed down its length, a pool table's
+   100-inch side covers *fewer* pixels than its 50-inch one.
 2. **Detect.** Anything on the bed that is not cloth. Pockets are excluded
-   geometrically. Touching balls are separated by distance-transform peaks and
-   by radial-symmetry voting at the known ball radius, which is what lets a
-   racked cluster be resolved at all.
-3. **Track.** One Kalman filter per ball in table coordinates, globally optimal
-   assignment on position *and* colour, and coasting through occlusions instead
-   of dying.
+   geometrically. Ball size comes from the homography and is computed for a
+   **sphere**, which is not foreshortened the way a painted disc is. Touching
+   balls are separated by distance-transform peaks plus radial-symmetry voting
+   on the colour gradient, which is what lets a racked cluster be resolved.
+3. **Track.** One Kalman filter per ball in table coordinates, with rolling
+   friction and process noise that loosens the moment something unexpected
+   happens; globally optimal assignment on position *and* colour; coasting
+   through occlusions instead of dying.
 4. **Analyse.** Events in physical units: contact within 1.12 ball diameters
    *with a positive closing speed*, cushion bounces, pots.
+5. **Survive the cut.** Broadcasts change angle mid-clip. When the bed stops
+   looking like cloth, tracking pauses rather than reporting balls in the crowd,
+   and the table is re-found from several agreeing frames.
 
 ## Accuracy
 
@@ -103,10 +116,11 @@ Measured against a physically simulated clip with exact ground truth:
 
 | | |
 |---|---|
-| MOTA | **0.934** |
-| Precision / recall | **1.000** / 0.935 |
-| ID switches over a full break | **1** |
-| Median position error | **0.157 in** (ball radius is 1.125 in) |
+| MOTA | **0.936** |
+| Precision / recall | **1.000** / 0.937 |
+| ID switches over a full break | **2** |
+| Median position error | **0.150 in** (ball radius is 1.125 in) |
+| Speed, 1280x720 | **23 fps** |
 
 Reproduce it:
 
@@ -132,7 +146,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 33
+pytest -q                  # all 38
 pytest -q -m "not slow"    # unit tests only
 ```
 
@@ -141,4 +155,4 @@ pytest -q -m "not slow"    # unit tests only
 Racked balls resolve to roughly 6 of 8 while the rack is static (adjacent balls
 of similar colour share no visible edge); a ball sitting in the pocket jaws is
 reported as potted; a ball the same colour as the cloth is hard by construction.
-See [`UPGRADE_NOTES.md §8`](UPGRADE_NOTES.md#8-known-limitations).
+See [`UPGRADE_NOTES.md §9`](UPGRADE_NOTES.md#9-known-limitations).

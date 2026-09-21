@@ -44,6 +44,11 @@ class ColorSignature:
     lab: np.ndarray  # (3,) float: L, a, b in OpenCV's 0..255 encoding
     white_fraction: float = 0.0
     chroma: float = 0.0
+    #: High percentile of chroma across the disc.  A striped ball is mostly
+    #: white with one strongly coloured band, so its *median* chroma is low
+    #: while its high percentile is not; the cue ball is low in both.  Without
+    #: this, every stripe is classified as the cue ball.
+    chroma_high: float = 0.0
 
     @staticmethod
     def empty() -> "ColorSignature":
@@ -62,6 +67,7 @@ class ColorSignature:
             white_fraction=(1.0 - alpha) * self.white_fraction
             + alpha * other.white_fraction,
             chroma=(1.0 - alpha) * self.chroma + alpha * other.chroma,
+            chroma_high=(1.0 - alpha) * self.chroma_high + alpha * other.chroma_high,
         )
 
     @property
@@ -73,10 +79,16 @@ class ColorSignature:
         return (int(bgr[0]), int(bgr[1]), int(bgr[2]))
 
     def classify(self) -> str:
-        """Coarse ball type: ``cue``, ``stripe``, ``eight`` or ``solid``."""
-        if self.white_fraction >= 0.72 and self.chroma < 22.0:
+        """Coarse ball type: ``cue``, ``stripe``, ``eight`` or ``solid``.
+
+        The cue ball and a striped ball are both mostly white, so white area
+        alone cannot separate them.  What does is that a stripe carries one
+        strongly coloured band while the cue ball carries no colour anywhere:
+        the median chroma of both is low, but the *high percentile* is not.
+        """
+        if self.white_fraction >= 0.6 and self.chroma_high < 30.0:
             return "cue"
-        if self.lab[0] < 70.0 and self.chroma < 22.0:
+        if self.lab[0] < 70.0 and self.chroma_high < 30.0:
             return "eight"
         if self.white_fraction >= 0.25:
             return "stripe"
@@ -87,6 +99,7 @@ class ColorSignature:
             "lab": [round(float(x), 1) for x in self.lab],
             "white_fraction": round(float(self.white_fraction), 3),
             "chroma": round(float(self.chroma), 1),
+            "chroma_high": round(float(self.chroma_high), 1),
             "type": self.classify(),
         }
 
@@ -163,7 +176,10 @@ def sample_signature(
         pixels.shape[0]
     )
     return ColorSignature(
-        lab=lab, white_fraction=float(white), chroma=float(np.median(chroma))
+        lab=lab,
+        white_fraction=float(white),
+        chroma=float(np.median(chroma)),
+        chroma_high=float(np.percentile(chroma, 85)),
     )
 
 

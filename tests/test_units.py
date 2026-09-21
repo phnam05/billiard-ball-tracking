@@ -353,6 +353,25 @@ def test_cue_ball_classification():
     assert solid.classify() == "solid"
 
 
+def test_a_mostly_white_stripe_is_not_mistaken_for_the_cue_ball():
+    """Stripes are white balls with one coloured band, so they are mostly white.
+
+    Classifying on white area alone labelled every stripe "CUE".  The cue ball
+    carries no colour anywhere; a stripe carries a lot in one band, which shows
+    up in the high percentile of chroma but not in its median.
+    """
+    cue = ColorSignature(
+        lab=np.array([243.0, 128.0, 128.0]),
+        white_fraction=0.93, chroma=5.0, chroma_high=9.0,
+    )
+    stripe = ColorSignature(
+        lab=np.array([210.0, 120.0, 190.0]),
+        white_fraction=0.68, chroma=12.0, chroma_high=78.0,
+    )
+    assert cue.classify() == "cue"
+    assert stripe.classify() == "stripe"
+
+
 def test_signature_blend_moves_towards_target():
     a = ColorSignature(lab=np.array([100.0, 100.0, 100.0]), white_fraction=0.0)
     b = ColorSignature(lab=np.array([200.0, 200.0, 200.0]), white_fraction=1.0)
