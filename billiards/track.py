@@ -22,7 +22,7 @@ import numpy as np
 
 from .assignment import FORBIDDEN, associate
 from .config import Config
-from .detect import ColorSignature, Detection
+from .detect import ColorSignature, Detection, colour_distance_matrix
 from .geometry import TableModel
 from .kalman import BallKalman
 
@@ -228,20 +228,21 @@ class MultiObjectTracker:
         det_xy = np.array(
             [d.centre_table for d in detections], dtype=np.float64
         ).reshape(m, 2)
-        for i, track in enumerate(self.tracks):
-            pred = track.kf.position
-            dist = np.linalg.norm(det_xy - pred, axis=1)
-            for j in range(m):
-                if dist[j] > gate:
-                    continue
-                colour_d = track.signature.distance(detections[j].signature)
-                if colour_d > tc.max_color_distance:
-                    continue
-                cost[i, j] = (
-                    dist[j] / gate
-                    + tc.color_cost_weight * (colour_d / tc.max_color_distance)
-                )
-        return cost
+        pred_xy = np.array(
+            [t.kf.position for t in self.tracks], dtype=np.float64
+        ).reshape(n, 2)
+
+        dist = np.linalg.norm(pred_xy[:, None, :] - det_xy[None, :, :], axis=2)
+        colour = colour_distance_matrix(
+            [t.signature for t in self.tracks],
+            [d.signature for d in detections],
+        )
+
+        # A pair is only a candidate if the ball could physically have moved
+        # that far in one frame *and* it still looks like the same ball.
+        allowed = (dist <= gate) & (colour <= tc.max_color_distance)
+        scored = dist / gate + tc.color_cost_weight * (colour / tc.max_color_distance)
+        return np.where(allowed, scored, cost)
 
     # -- main step ---------------------------------------------------------
 

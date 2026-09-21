@@ -395,6 +395,77 @@ class TableModel:
 
     # -- perspective-aware scale ------------------------------------------
 
+    # -- cached scale field ------------------------------------------------
+    #
+    # The local magnification varies smoothly across the table, so evaluating
+    # it exactly for every detection on every frame -- two perspective
+    # transforms and an SVD apiece -- is wasted work.  It is tabulated once on a
+    # grid in table coordinates and interpolated, which is both faster and
+    # exactly as accurate at the scale anything here cares about.
+
+    _GRID_NX = 65
+    _GRID_NY = 33
+
+    def _scale_grids(self) -> Tuple[np.ndarray, np.ndarray]:
+        cached = getattr(self, "_scale_grid_cache", None)
+        if cached is not None:
+            return cached
+
+        eps = 0.5
+        xs = np.linspace(0.0, self.length_in, self._GRID_NX)
+        ys = np.linspace(0.0, self.width_in, self._GRID_NY)
+        gx, gy = np.meshgrid(xs, ys)
+        base = np.column_stack([gx.ravel(), gy.ravel()])
+
+        img = self.table_to_image(base)
+        img_dx = self.table_to_image(base + np.array([eps, 0.0]))
+        img_dy = self.table_to_image(base + np.array([0.0, eps]))
+
+        a = (img_dx[:, 0] - img[:, 0]) / eps
+        c = (img_dx[:, 1] - img[:, 1]) / eps
+        b = (img_dy[:, 0] - img[:, 0]) / eps
+        d = (img_dy[:, 1] - img[:, 1]) / eps
+
+        # Closed-form singular values of the 2x2 Jacobian [[a, b], [c, d]].
+        e = 0.5 * (a * a + b * b + c * c + d * d)
+        f = 0.5 * (a * a + b * b - c * c - d * d)
+        g = a * c + b * d
+        root = np.sqrt(np.maximum(f * f + g * g, 0.0))
+        sigma_max = np.sqrt(np.maximum(e + root, 1e-12))
+        area = np.sqrt(np.abs(a * d - b * c))
+
+        sphere = sigma_max.reshape(self._GRID_NY, self._GRID_NX)
+        flat = area.reshape(self._GRID_NY, self._GRID_NX)
+        self._scale_grid_cache = (sphere, flat)
+        return self._scale_grid_cache
+
+    def _sample_grid(self, grid: np.ndarray, table_pt: Point) -> float:
+        """Bilinear lookup, clamped to the table domain."""
+        u = float(table_pt[0]) / max(self.length_in, 1e-9) * (self._GRID_NX - 1)
+        v = float(table_pt[1]) / max(self.width_in, 1e-9) * (self._GRID_NY - 1)
+        u = min(max(u, 0.0), self._GRID_NX - 1.0)
+        v = min(max(v, 0.0), self._GRID_NY - 1.0)
+
+        i0 = int(u)
+        j0 = int(v)
+        i1 = min(i0 + 1, self._GRID_NX - 1)
+        j1 = min(j0 + 1, self._GRID_NY - 1)
+        fu = u - i0
+        fv = v - j0
+
+        top = grid[j0, i0] * (1.0 - fu) + grid[j0, i1] * fu
+        bottom = grid[j1, i0] * (1.0 - fu) + grid[j1, i1] * fu
+        return float(max(top * (1.0 - fv) + bottom * fv, 1e-6))
+
+    def sphere_scale_at_table(self, table_pt: Point) -> float:
+        return self._sample_grid(self._scale_grids()[0], table_pt)
+
+    def px_per_inch_at_table(self, table_pt: Point) -> float:
+        return self._sample_grid(self._scale_grids()[1], table_pt)
+
+    def expected_ball_radius_px_table(self, table_pt: Point) -> float:
+        return self.ball_radius_in * self.sphere_scale_at_table(table_pt)
+
     def local_jacobian(self, image_pt: Point, eps: float = 0.5) -> np.ndarray:
         """2x2 derivative of the table->image map at an image point.
 
@@ -418,8 +489,8 @@ class TableModel:
         This is ``sqrt(|det J|)``, the right scale for a **flat** feature lying
         on the cloth -- a pocket, a spot, a marking.
         """
-        det = abs(float(np.linalg.det(self.local_jacobian(image_pt))))
-        return float(max(np.sqrt(det), 1e-6))
+        t = self.image_to_table([image_pt])[0]
+        return self.px_per_inch_at_table((float(t[0]), float(t[1])))
 
     def sphere_scale_at(self, image_pt: Point) -> float:
         """Local scale governing the apparent size of a **sphere**, in px/inch.
@@ -441,9 +512,8 @@ class TableModel:
         The largest singular value of the local Jacobian is that across-view
         magnification.
         """
-        J = self.local_jacobian(image_pt)
-        singular = np.linalg.svd(J, compute_uv=False)
-        return float(max(float(singular[0]), 1e-6))
+        t = self.image_to_table([image_pt])[0]
+        return self.sphere_scale_at_table((float(t[0]), float(t[1])))
 
     def expected_ball_radius_px(self, image_pt: Point) -> float:
         return self.ball_radius_in * self.sphere_scale_at(image_pt)

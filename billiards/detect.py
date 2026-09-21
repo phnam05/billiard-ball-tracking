@@ -16,7 +16,7 @@ ball at the far cushion covers a quarter of the pixels of one at the near rail.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -51,9 +51,8 @@ class ColorSignature:
 
     def distance(self, other: "ColorSignature") -> float:
         d_lab = self.lab.astype(np.float64) - other.lab.astype(np.float64)
-        weighted = np.array([0.45, 1.0, 1.0]) * d_lab
-        colour = float(np.linalg.norm(weighted))
-        stripe = abs(self.white_fraction - other.white_fraction) * 26.0
+        colour = float(np.linalg.norm(_LAB_WEIGHTS * d_lab))
+        stripe = abs(self.white_fraction - other.white_fraction) * _STRIPE_WEIGHT
         return colour + stripe
 
     def blend(self, other: "ColorSignature", alpha: float) -> "ColorSignature":
@@ -92,6 +91,53 @@ class ColorSignature:
         }
 
 
+#: Per-channel weights used by ColorSignature.distance.  Lightness counts for
+#: less because it is the channel that moves when a ball rolls through a shadow.
+_LAB_WEIGHTS = np.array([0.45, 1.0, 1.0])
+_STRIPE_WEIGHT = 26.0
+
+
+def colour_distance_matrix(
+    a: Sequence["ColorSignature"], b: Sequence["ColorSignature"]
+) -> np.ndarray:
+    """All pairwise colour distances at once.
+
+    Same metric as ``ColorSignature.distance``, but computed for a whole
+    track x detection grid in one pass.  Doing it one pair at a time meant a
+    Python-level double loop plus several small array allocations on every
+    frame, which was one of the larger costs in the tracker.
+    """
+    if not len(a) or not len(b):
+        return np.zeros((len(a), len(b)), dtype=np.float64)
+
+    a_lab = np.array([s.lab for s in a], dtype=np.float64).reshape(len(a), 3)
+    b_lab = np.array([s.lab for s in b], dtype=np.float64).reshape(len(b), 3)
+    a_white = np.array([s.white_fraction for s in a], dtype=np.float64)
+    b_white = np.array([s.white_fraction for s in b], dtype=np.float64)
+
+    delta = (a_lab[:, None, :] - b_lab[None, :, :]) * _LAB_WEIGHTS
+    colour = np.sqrt(np.einsum("ijk,ijk->ij", delta, delta))
+    stripe = np.abs(a_white[:, None] - b_white[None, :]) * _STRIPE_WEIGHT
+    return colour + stripe
+
+
+def _unit_disc_offsets(count: int = 64) -> np.ndarray:
+    """Evenly spread points on the unit disc (a sunflower/Vogel spiral).
+
+    Sampling a fixed number of points instead of every pixel makes the cost of
+    a colour signature independent of how large the ball is on screen, which
+    matters because this runs for every detection on every frame.  A hundred
+    samples is far more than a median and a fraction need.
+    """
+    k = np.arange(count, dtype=np.float64) + 0.5
+    radius = np.sqrt(k / count)
+    theta = k * np.pi * (3.0 - np.sqrt(5.0))
+    return np.column_stack([radius * np.cos(theta), radius * np.sin(theta)])
+
+
+_DISC_OFFSETS = _unit_disc_offsets()
+
+
 def sample_signature(
     lab_image: np.ndarray, centre: Tuple[float, float], radius_px: float
 ) -> ColorSignature:
@@ -102,20 +148,15 @@ def sample_signature(
     """
     h, w = lab_image.shape[:2]
     r = max(2.0, radius_px * 0.62)
-    x0 = int(max(0, np.floor(centre[0] - r)))
-    x1 = int(min(w, np.ceil(centre[0] + r) + 1))
-    y0 = int(max(0, np.floor(centre[1] - r)))
-    y1 = int(min(h, np.ceil(centre[1] + r) + 1))
-    if x1 <= x0 or y1 <= y0:
-        return ColorSignature.empty()
 
-    patch = lab_image[y0:y1, x0:x1]
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    inside = (xx - centre[0]) ** 2 + (yy - centre[1]) ** 2 <= r * r
+    pts = _DISC_OFFSETS * r + np.asarray(centre, dtype=np.float64)
+    xs = np.rint(pts[:, 0]).astype(np.int32)
+    ys = np.rint(pts[:, 1]).astype(np.int32)
+    inside = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
     if not np.any(inside):
         return ColorSignature.empty()
 
-    pixels = patch[inside].astype(np.float64)
+    pixels = lab_image[ys[inside], xs[inside]].astype(np.float64)
     lab = np.median(pixels, axis=0)
     chroma = np.linalg.norm(pixels[:, 1:] - 128.0, axis=1)
     white = np.count_nonzero((pixels[:, 0] > 165.0) & (chroma < 26.0)) / float(
@@ -382,15 +423,16 @@ class BallDetector:
         from_cluster: bool,
     ) -> Optional[Detection]:
         table_pt = self.table.image_to_table([centre])[0]
+        table_xy = (float(table_pt[0]), float(table_pt[1]))
         margin = -0.75 * self.table.ball_radius_in  # allow slight overhang
-        if not self.table.contains((float(table_pt[0]), float(table_pt[1])), margin):
+        if not self.table.contains(table_xy, margin):
             return None
         # Radius recomputed at the refined centre: matters on wide-angle views.
-        r = self.table.expected_ball_radius_px(centre)
+        r = self.table.expected_ball_radius_px_table(table_xy)
         sig = sample_signature(lab, centre, r)
         return Detection(
             centre_image=(float(centre[0]), float(centre[1])),
-            centre_table=(float(table_pt[0]), float(table_pt[1])),
+            centre_table=table_xy,
             radius_px=float(r),
             area_ratio=float(ratio),
             circularity=float(circularity),
