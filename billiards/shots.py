@@ -219,3 +219,15 @@ class ShotSegmenter:
 
     def summary_lines(self) -> List[str]:
         return [s.describe() for s in self.shots]
+
+    def live_description(self) -> Optional[str]:
+        """The shot being played, or the last one finished, as one line.
+
+        For the annotated view: while watching, "hit #8 first, nothing potted
+        yet" is the read a player wants, and reconstructing it from the event
+        log frame by frame is not something a display should have to do.
+        """
+        shot = self._current or (self.shots[-1] if self.shots else None)
+        if shot is None:
+            return None
+        return shot.describe()

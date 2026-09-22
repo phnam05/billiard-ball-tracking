@@ -51,8 +51,12 @@ While a window is open: `space` pauses, `c` clears the trails, `q` quits.
 ### Outputs
 
 * **Annotated video** — balls circled in their own colour with stable IDs,
-  trajectories, contact points, and a top-down diagram inset. A ball the tracker
-  is *predicting* rather than *seeing* is drawn dashed.
+  trajectories and contact points, with the top-down diagram and the live read
+  in a bar *below* the picture rather than over it: a pool camera fills its
+  frame with table, so an inset in any corner covers the thing you are trying
+  to look at. A ball the tracker is *predicting* rather than *seeing* is drawn
+  dashed. `--overhead-inset` puts the diagram back in the corner and keeps the
+  source resolution; `--no-overhead` drops it altogether.
 * **`--csv`** — one row per ball per frame: position in table inches and in
   image pixels, velocity, speed, track state.
 * **`--json`** — calibration report, run statistics, the full event log
@@ -78,7 +82,8 @@ of its own.
 | `--table-corners x1,y1,...` | Override the automatic table fit |
 | `--max-width` | Downscale for speed; accuracy is scale-invariant |
 | `--debug` | Also show the detection mask |
-| `--no-overhead` | Hide the top-down inset |
+| `--no-overhead` | Drop the top-down diagram |
+| `--overhead-inset` | Diagram in a corner of the picture, not in a bar below it |
 
 Full configuration: `python main.py dump-config config.yaml`, edit, then
 `--config config.yaml`. Every value is in inches, seconds or a ratio — never
@@ -167,7 +172,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 73
+pytest -q                  # all 76
 pytest -q -m "not slow"    # unit tests only
 ```
 

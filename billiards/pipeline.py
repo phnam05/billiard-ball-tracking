@@ -135,9 +135,11 @@ class TrackingPipeline:
             self.last_frame_index = frame_index
             self._last_measured = None
             self._repeat_run = 0
-            annotated = frame.copy() if annotate else None
-            if annotated is not None:
-                self.renderer.draw_hud(annotated, self.hud(frame_index, t_s))
+            annotated = None
+            if annotate:
+                annotated = self.renderer.compose_idle(
+                    frame, self.hud(frame_index, t_s)
+                )
             return FrameResult(frame_index, t_s, [], [], [], annotated)
 
         if (
@@ -246,6 +248,7 @@ class TrackingPipeline:
                 f"{k}={v}" for k, v in sorted(self.event_summary().items())
             )
             or "none",
+            "shot": self.shots.live_description() or "none yet",
         }
 
     # -- view validity -----------------------------------------------------

@@ -62,6 +62,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="override auto table detection: x1,y1,x2,y2,x3,y3,x4,y4 in pixels",
     )
     t.add_argument("--no-overhead", action="store_true", help="hide the overhead panel")
+    t.add_argument(
+        "--overhead-inset",
+        action="store_true",
+        help="put the overhead panel back inside the picture, in a corner, "
+             "instead of in a bar below it; keeps the source resolution, at "
+             "the cost of covering part of the table",
+    )
     t.add_argument("--quiet", action="store_true", help="suppress progress output")
 
     # -- calibrate ---------------------------------------------------------
@@ -105,6 +112,8 @@ def _load_config(args: argparse.Namespace) -> Config:
         cfg.max_frame_width = args.max_width
     if getattr(args, "no_overhead", False):
         cfg.render.overhead_panel = False
+    if getattr(args, "overhead_inset", False):
+        cfg.render.overhead_panel_place = "inset"
     return cfg
 
 

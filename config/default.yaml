@@ -83,6 +83,7 @@ render:
   trail_seconds: 4.0
   trail_thickness: 2
   overhead_panel: true
+  overhead_panel_place: below
   overhead_panel_scale: 0.34
   font_scale: 0.45
 max_frame_width: 1280

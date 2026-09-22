@@ -78,11 +78,118 @@ class Renderer:
         self._draw_balls(out, tracks)
         if r.draw_events:
             self._draw_events(out, recent_events)
+        return self._compose(out, tracks, recent_events, hud)
+
+    def compose_idle(
+        self, frame: np.ndarray, hud: Optional[Dict[str, object]] = None
+    ) -> np.ndarray:
+        """The canvas for a frame with nothing to report.
+
+        Used while the calibrated table is off screen.  It goes through the
+        same composition as a tracked frame so that every frame of the output
+        video is the same size -- the writer adopts the first frame's size and
+        would otherwise have to squash the rest.
+        """
+        return self._compose(frame.copy(), [], [], hud)
+
+    # ------------------------------------------------------------------
+    # Composition: the picture, plus whatever is drawn beside it
+    # ------------------------------------------------------------------
+
+    def _compose(
+        self,
+        img: np.ndarray,
+        tracks: Sequence[Track],
+        events: Sequence[Event],
+        hud: Optional[Dict[str, object]],
+    ) -> np.ndarray:
+        r = self.cfg.render
+        show_hud = bool(r.draw_hud and hud)
+        if r.overhead_panel_place == "below":
+            if not r.overhead_panel and not show_hud:
+                return img
+            return self._with_panel_bar(img, tracks, events, hud if show_hud else None)
+
         if r.overhead_panel:
-            self._blit_overhead(out, tracks, recent_events)
+            self._blit_overhead(img, tracks, events)
         if r.draw_hud and hud:
-            self.draw_hud(out, hud)
+            self.draw_hud(img, hud)
+        return img
+
+    def _with_panel_bar(
+        self,
+        img: np.ndarray,
+        tracks: Sequence[Track],
+        events: Sequence[Event],
+        hud: Optional[Dict[str, object]],
+    ) -> np.ndarray:
+        """Stack the picture on a bar holding the diagram and the status text.
+
+        Everything synthetic ends up in the bar, so the frame above it is the
+        broadcast picture with only the tracker's own marks on the balls --
+        which is what someone checking the tracking actually wants to look at.
+        """
+        h, w = img.shape[:2]
+        pad = 10
+
+        panel = None
+        if self.cfg.render.overhead_panel:
+            panel = self.overhead(tracks, events)
+            target_w = max(40, int(w * self.cfg.render.overhead_panel_scale))
+            scale = target_w / panel.shape[1]
+            panel = cv2.resize(
+                panel, (target_w, max(1, int(round(panel.shape[0] * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        text_h = self._status_height(hud) if hud else 0
+        content_h = max(panel.shape[0] if panel is not None else 0, text_h)
+        bar_h = content_h + 2 * pad
+
+        out = np.empty((h + bar_h, w, 3), dtype=img.dtype)
+        out[:h] = img
+        out[h:] = (22, 22, 22)
+        cv2.line(out, (0, h), (w, h), (70, 70, 70), 1)
+
+        x0, y0 = pad, h + pad
+        if panel is not None:
+            ph, pw = panel.shape[:2]
+            out[y0 : y0 + ph, x0 : x0 + pw] = panel
+            cv2.rectangle(out, (x0 - 1, y0 - 1), (x0 + pw, y0 + ph),
+                          (110, 110, 110), 1)
+            x0 += pw + 2 * pad
+
+        if hud:
+            self._draw_status(out, hud, x0, y0)
         return out
+
+    def _status_line_height(self) -> int:
+        scale = self.cfg.render.font_scale * 1.15
+        return cv2.getTextSize("Ag", FONT, scale, 1)[0][1] + 10
+
+    def _status_height(self, hud: Dict[str, object]) -> int:
+        return self._status_line_height() * len(hud)
+
+    def _draw_status(
+        self, img: np.ndarray, hud: Dict[str, object], x: int, y: int
+    ) -> None:
+        """The status lines, laid out in the bar beside the diagram."""
+        scale = self.cfg.render.font_scale * 1.15
+        lines = [(str(k), str(v)) for k, v in hud.items()]
+        if not lines:
+            return
+        key_w = max(cv2.getTextSize(k, FONT, scale, 1)[0][0] for k, _ in lines)
+        line_h = self._status_line_height()
+
+        cursor = y + line_h - 4
+        for key, value in lines:
+            if cursor > img.shape[0] - 4:
+                break
+            cv2.putText(img, key, (x, cursor), FONT, scale,
+                        (130, 130, 130), 1, cv2.LINE_AA)
+            cv2.putText(img, value, (x + key_w + 12, cursor), FONT, scale,
+                        (235, 235, 235), 1, cv2.LINE_AA)
+            cursor += line_h
 
     def _draw_table_outline(self, img: np.ndarray) -> None:
         poly = self.table.bed_polygon_image(0.0).astype(np.int32)

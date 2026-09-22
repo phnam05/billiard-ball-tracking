@@ -459,6 +459,18 @@ class RenderConfig:
     trail_thickness: int = 2
     #: Render the synthetic overhead diagram alongside the camera view.
     overhead_panel: bool = True
+
+    #: Where the top-down diagram goes.
+    #:
+    #: ``below`` puts it in a bar under the video, with the status text beside
+    #: it, and nothing is drawn over the picture at all.  The camera view of a
+    #: pool table fills its frame -- on the sample clips the bed covers the
+    #: whole lower half -- so an inset in any corner sits on top of the table
+    #: it is describing, which is exactly where the viewer is looking.
+    #:
+    #: ``inset`` is the old in-frame corner, for when the output has to keep
+    #: the source resolution.
+    overhead_panel_place: str = "below"
     #: Fraction of the output width the overhead panel occupies.
     overhead_panel_scale: float = 0.34
     font_scale: float = 0.45

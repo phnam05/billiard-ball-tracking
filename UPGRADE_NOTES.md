@@ -318,6 +318,13 @@ potted #7 -- 5.4s`.
 * The overhead view is **drawn from table coordinates** rather than warped from
   camera pixels: crisp at any zoom, free to render, and it shows what the
   tracker actually believes.
+* It sits in a **bar below the picture**, not in a corner of it, along with the
+  status lines and the shot being played. A pool camera fills its frame with
+  table — on these clips the bed covers the whole lower half — so an inset in
+  any corner lands on top of the table it is describing. Nothing synthetic is
+  drawn over the picture now except the tracker's own marks on the balls.
+  `--overhead-inset` restores the old layout for when the output has to keep
+  the source resolution.
 * Coasted (predicted, unobserved) balls are drawn **dashed**, so belief is
   visually distinguishable from evidence.
 * Per-frame track data streams to CSV; events and a run summary go to JSON.
@@ -357,7 +364,7 @@ potted #7 -- 5.4s`.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **73 tests**, including end-to-end accuracy assertions, a camera-cut test
+* **76 tests**, including end-to-end accuracy assertions, a camera-cut test
   and a repeated-frame test.
 * Works **headless**.
 
@@ -506,7 +513,7 @@ tools/
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
 results/         rewritten by run_report.py; annotated video + data per clip
-tests/           73 tests
+tests/           76 tests
 ```
 
 `evaluate.py` and `run_report.py` answer different questions, and both are

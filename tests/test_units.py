@@ -828,3 +828,48 @@ def test_the_repeat_test_can_be_switched_off():
     pipe.process(still.copy(), 1, annotate=False)
     assert pipe.frames_repeated == 0
     assert pipe.last_frame_index == 1
+
+
+# --------------------------------------------------------------------------
+# Where the overhead diagram goes
+# --------------------------------------------------------------------------
+
+
+def test_the_overhead_diagram_does_not_cover_the_picture():
+    """A pool camera fills its frame with table -- on the sample clips the bed
+    covers the whole lower half -- so an inset in any corner sits on top of the
+    thing the viewer is looking at.  It goes in a bar underneath instead."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+
+    out = pipe.renderer.draw(frame, [], [], [], hud={"frame": "0"})
+    h, w = frame.shape[:2]
+    assert out.shape[1] == w, "the picture keeps its width"
+    assert out.shape[0] > h, "and gains a bar below it"
+
+    # Turning the diagram on must not change a single pixel of the picture.
+    pipe.cfg.render.overhead_panel = False
+    without = pipe.renderer.draw(frame, [], [], [], hud={"frame": "0"})
+    assert np.array_equal(out[:h], without[:h])
+
+
+def test_every_frame_of_the_output_is_the_same_size():
+    """Including the ones where the table is off screen.  The writer adopts the
+    first frame's size and squashes the rest, so a paused frame that skipped
+    the bar would silently distort the whole clip from that point."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+
+    tracked = pipe.renderer.draw(frame, [], [], [], hud={"frame": "0"})
+    idle = pipe.renderer.compose_idle(frame, {"status": "paused"})
+    assert tracked.shape == idle.shape
+
+
+def test_the_diagram_can_still_be_an_inset():
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    pipe.cfg.render.overhead_panel_place = "inset"
+
+    out = pipe.renderer.draw(frame, [], [], [], hud={"frame": "0"})
+    assert out.shape == frame.shape
+    assert not np.array_equal(out, frame), "the inset is drawn over the picture"
