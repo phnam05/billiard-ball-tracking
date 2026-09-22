@@ -715,3 +715,116 @@ def test_the_cut_test_can_be_switched_off():
     assert not pipe._bed_repainted(
         rng.integers(0, 256, frame.shape, dtype=np.uint8)
     )
+
+
+# --------------------------------------------------------------------------
+# Seeing a repeated frame
+# --------------------------------------------------------------------------
+
+
+def _with_ball_at(frame, pipe, xy):
+    import cv2
+
+    out = frame.copy()
+    r = int(round(pipe.table.expected_ball_radius_px(xy)))
+    cv2.circle(out, (int(xy[0]), int(xy[1])), r, (40, 40, 220), -1)
+    return out
+
+
+def test_an_identical_frame_is_recognised_as_a_repeat():
+    """Broadcast clips are routinely 25 fps content rewrapped at 37.7, so one
+    frame in three is a copy.  Measuring a copy again tells the filter the ball
+    did not move, which is not what the picture says -- it says nothing."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    first = _with_ball_at(frame, pipe, (400.0, 200.0))
+
+    pipe._bed_change(first)
+    assert pipe._bed_change(first.copy())[1], "a pixel-identical frame is a repeat"
+
+
+def test_a_re_encoded_copy_is_still_a_repeat():
+    """A copy in a re-encoded stream is not bit-identical, which is why the
+    test is counted at a third of full scale rather than at zero.  Measured
+    over the three sample clips, a copy moves no bed pixel that far."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    first = _with_ball_at(frame, pipe, (400.0, 200.0))
+
+    rng = np.random.default_rng(7)
+    noise = rng.integers(-6, 7, first.shape, dtype=np.int16)
+    grainy = np.clip(first.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+    pipe._bed_change(first)
+    assert pipe._bed_change(grainy)[1]
+
+
+def test_a_frame_with_a_ball_that_moved_is_not_a_repeat():
+    """The gate that matters: it must not swallow real motion.  A ball rolling
+    at 20 in/s moves about a fifth of its own width per frame."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    r = pipe.table.expected_ball_radius_px((400.0, 200.0))
+
+    pipe._bed_change(_with_ball_at(frame, pipe, (400.0, 200.0)))
+    moved = _with_ball_at(frame, pipe, (400.0 + 0.4 * r, 200.0))
+    assert not pipe._bed_change(moved)[1]
+
+
+def test_a_cut_is_never_read_as_a_repeat():
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    rng = np.random.default_rng(3)
+    elsewhere = rng.integers(0, 256, frame.shape, dtype=np.uint8)
+
+    pipe._bed_change(frame)
+    repainted, repeats = pipe._bed_change(elsewhere)
+    assert repainted and not repeats
+
+
+def test_a_repeated_frame_is_replayed_rather_than_measured_again():
+    """The point of the whole thing: the tracker's clock advances by the
+    interval the picture actually changed across, not by the number of copies
+    the file happened to contain."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    first = _with_ball_at(frame, pipe, (400.0, 200.0))
+
+    pipe.process(first, 0, annotate=False)
+    measured = pipe.last_frame_index
+
+    result = pipe.process(first.copy(), 1, annotate=False)
+    assert pipe.frames_repeated == 1
+    assert pipe.last_frame_index == measured, "a copy must not advance the clock"
+    # The row is still reported, so a per-frame export stays one row per ball
+    # per frame and the annotated video stays one frame per input frame.
+    assert result.frame_index == 1
+    assert result.events == [], "nothing happened on a frame that did not change"
+
+
+def test_a_run_of_repeats_is_capped():
+    """The bed is genuinely still between shots -- two seconds on the sample
+    clips -- and extrapolating a Kalman filter across that in one step makes
+    its association gate wider than the table."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    still = _with_ball_at(frame, pipe, (400.0, 200.0))
+
+    pipe.process(still, 0, annotate=False)
+    for i in range(1, 2 + 2 * cfg.table.repeat_frame_max_run):
+        pipe.process(still.copy(), i, annotate=False)
+
+    assert pipe.frames_repeated < i, "a still table must still be measured now and then"
+    assert pipe.last_frame_index > cfg.table.repeat_frame_max_run
+
+
+def test_the_repeat_test_can_be_switched_off():
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    pipe.cfg.table.repeat_frame_max_run = 0
+    still = _with_ball_at(frame, pipe, (400.0, 200.0))
+
+    pipe.process(still, 0, annotate=False)
+    pipe.process(still.copy(), 1, annotate=False)
+    assert pipe.frames_repeated == 0
+    assert pipe.last_frame_index == 1

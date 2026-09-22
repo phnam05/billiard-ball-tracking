@@ -143,6 +143,12 @@ def cmd_track(args: argparse.Namespace) -> int:
                 summary["processing_fps"],
             )
         )
+        repeated = summary.get("frames_repeated") or 0
+        if repeated:
+            _log(
+                "{} of them repeated the frame before them and were replayed, "
+                "not measured twice".format(repeated)
+            )
         _log(f"tracks created: {summary['tracks_created']}")
         _log(f"events: {summary['events'] or 'none'}")
         shots = summary.get("shot_log") or []

@@ -30,6 +30,25 @@ from .track import Track, TrackState
 _MIN_AGE_FOR_STRUCK = 8
 
 
+def closest_approach(
+    gap: np.ndarray, change: np.ndarray
+) -> Tuple[float, float]:
+    """How near two balls came during one frame, and when.
+
+    ``gap`` is the vector between them at the start of the frame and ``change``
+    is how that vector changed by the end of it.  Both balls travel in a
+    straight line over so short an interval, so the distance between them is
+    ``|gap + s * change|`` for ``s`` in 0..1 and its minimum is exact.
+
+    Returns ``(s, distance)`` at that minimum.
+    """
+    speed_sq = float(np.dot(change, change))
+    if speed_sq <= 1e-12:  # not moving relative to each other
+        return 0.0, float(np.linalg.norm(gap))
+    s = float(np.clip(-np.dot(gap, change) / speed_sq, 0.0, 1.0))
+    return s, float(np.linalg.norm(gap + s * change))
+
+
 class EventType(Enum):
     COLLISION = "collision"
     CUSHION = "cushion"
@@ -70,6 +89,7 @@ class EventDetector:
         self._last_pair_event: Dict[frozenset, float] = {}
         self._last_cushion: Dict[int, float] = {}
         self._prev_velocity: Dict[int, np.ndarray] = {}
+        self._prev_position: Dict[int, np.ndarray] = {}
         #: Per-track motion state, "rest" or "moving".  Not a plain boolean:
         #: see _balls_struck for why it needs a hysteresis band.
         self._motion_state: Dict[int, str] = {}
@@ -87,16 +107,31 @@ class EventDetector:
     # -- public ------------------------------------------------------------
 
     def step(
-        self, tracks: Sequence[Track], frame: int, t_s: float
+        self,
+        tracks: Sequence[Track],
+        frame: int,
+        t_s: float,
+        dt: Optional[float] = None,
     ) -> List[Event]:
+        """Events since the previous call, ``dt`` seconds ago.
+
+        ``dt`` is passed rather than assumed to be ``1 / fps`` because it is
+        not: the pipeline skips frames that merely repeat the one before them,
+        so two calls can be two or three frame intervals apart.  Both the
+        contact test and the cushion test measure how far a ball travelled
+        since the last call, and getting that wrong by 2x is the difference
+        between finding the contact and stepping over it.
+        """
+        dt = 1.0 / self.fps if dt is None else max(float(dt), 1e-4)
         confirmed = [t for t in tracks if t.state is TrackState.CONFIRMED]
         new: List[Event] = []
-        new.extend(self._collisions(confirmed, frame, t_s))
-        new.extend(self._cushions(confirmed, frame, t_s))
+        new.extend(self._collisions(confirmed, frame, t_s, dt))
+        new.extend(self._cushions(confirmed, frame, t_s, dt))
         new.extend(self._balls_struck(confirmed, frame, t_s))
 
         for track in confirmed:
             self._prev_velocity[track.track_id] = track.velocity.copy()
+            self._prev_position[track.track_id] = track.kf.position.copy()
 
         self.events.extend(new)
         return new
@@ -121,8 +156,26 @@ class EventDetector:
     # -- detectors ---------------------------------------------------------
 
     def _collisions(
-        self, tracks: Sequence[Track], frame: int, t_s: float
+        self, tracks: Sequence[Track], frame: int, t_s: float, dt: float
     ) -> List[Event]:
+        """Contact, tested over the whole frame rather than at the end of it.
+
+        Testing only where the balls are *now* cannot work at the speeds a
+        break reaches.  Two balls are in contact over a shell 0.27 in thick --
+        from 1.12 diameters apart down to touching -- and a cue ball crossing
+        the table covers three or four inches between frames, so it is sampled
+        inside that shell about one time in fifteen.  On ``fedor_shot.mp4`` the
+        gap between the cue ball and the ball it pocketed read 3.72 in on one
+        frame and 2.53 in on the next, against a 2.52 in threshold: the shot
+        potted a ball and reported no collision.
+
+        Both balls travel in a straight line over one frame, so their closest
+        approach *during* the frame is exact arithmetic, and that is what the
+        contact distance is compared against.  The closing speed is then how
+        fast the gap actually shrank over the frame, which is what stops two
+        balls resting against each other from emitting a collision forever:
+        their gap is not shrinking.
+        """
         cfg = self.cfg.events
         contact = cfg.contact_distance_ball_diameters * self.table.ball_diameter_in
         out: List[Event] = []
@@ -131,13 +184,16 @@ class EventDetector:
             for j in range(i + 1, len(tracks)):
                 a, b = tracks[i], tracks[j]
                 pa, pb = a.kf.position, b.kf.position
-                delta = pb - pa
-                dist = float(np.linalg.norm(delta))
+                qa = self._prev_position.get(a.track_id, pa)
+                qb = self._prev_position.get(b.track_id, pb)
+
+                gap = qb - qa
+                change = (pb - pa) - gap
+                s, dist = closest_approach(gap, change)
                 if dist > contact or dist < 1e-6:
                     continue
 
-                direction = delta / dist
-                closing = float(np.dot(a.velocity - b.velocity, direction))
+                closing = (float(np.linalg.norm(gap)) - dist) / dt
                 if closing < cfg.min_closing_speed_in_s:
                     continue
 
@@ -147,7 +203,9 @@ class EventDetector:
                     continue
                 self._last_pair_event[key] = t_s
 
-                mid = (pa + pb) / 2.0
+                # Report the contact point, not the balls' current positions:
+                # by now they have bounced apart.
+                mid = (qa + s * (pa - qa) + qb + s * (pb - qb)) / 2.0
                 img = self.table.table_to_image([tuple(mid)])[0]
                 out.append(
                     Event(
@@ -166,7 +224,7 @@ class EventDetector:
         return out
 
     def _cushions(
-        self, tracks: Sequence[Track], frame: int, t_s: float
+        self, tracks: Sequence[Track], frame: int, t_s: float, dt: float
     ) -> List[Event]:
         cfg = self.cfg.events
         base_proximity = cfg.cushion_proximity_ball_radii * self.table.ball_radius_in
@@ -186,7 +244,7 @@ class EventDetector:
             # the reversal is observable the ball is already well off the
             # cushion.  A fixed 1.4-inch gate therefore matched essentially
             # never -- clips full of obvious bounces reported zero.
-            proximity = base_proximity + track.speed / self.fps
+            proximity = base_proximity + track.speed * dt
 
             pos = track.kf.position
             x, y = float(pos[0]), float(pos[1])

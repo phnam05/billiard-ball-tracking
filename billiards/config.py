@@ -102,6 +102,44 @@ class TableConfig:
     view_change_level: float = 0.031
     view_change_area_ratio: float = 0.12
 
+    #: The same comparison answers a second question at the opposite end of the
+    #: scale: did the bed change *at all*?
+    #:
+    #: Broadcast clips are routinely 25 fps content rewrapped at 37.7 fps, so
+    #: one frame in three is a copy of the one before it.  A copy is not a new
+    #: measurement, and treating it as one is double counting: the filter is
+    #: told the ball did not move over 1/37.7 s, so its velocity estimate
+    #: collapses, and the next real frame then hands it one and a half frames
+    #: of travel at once.  On ``fedor_shot.mp4`` that made a cue ball rolling
+    #: smoothly at 107 in/s report 30, 75, 9, 124 and 160 in/s on successive
+    #: frames; it drove the estimate below the at-rest threshold in the middle
+    #: of the roll, which fired a second "struck" event for a ball that had
+    #: never stopped; and it stepped the ball over the contact window, so the
+    #: shot that potted a ball reported no collision at all.
+    #:
+    #: A frame that moved less than this many ball areas of the bed is
+    #: therefore not measured again.  It is replayed, and the next frame that
+    #: *is* measured gets the whole interval as its ``dt``, which is the point:
+    #: the geometry was never wrong, only the clock.
+    #:
+    #: The level is deliberately high -- an eighth of full scale, measured as
+    #: the largest step across the colour channels -- because a re-encoded copy
+    #: is not bit-identical.  Measured over the three sample clips, a copy
+    #: moves *no* bed pixel that far, so the budget below only has to tolerate
+    #: the odd compression artefact: it is two hundredths of a ball, about nine
+    #: pixels at 720p, against the fifty or more that one ball shifting by a
+    #: single pixel repaints.
+    repeat_frame_level: float = 0.125
+    repeat_frame_ball_areas: float = 0.02
+
+    #: ...but the tracker must not be asked to bridge an unbounded gap.  The
+    #: bed is genuinely still between shots -- up to two seconds on the sample
+    #: clips -- and extrapolating a Kalman filter across that in one step makes
+    #: its association gate wider than the table.  After this many frames in a
+    #: row have been dropped, the next one is measured whatever it looks like.
+    #: 0 measures every frame, however little changed.
+    repeat_frame_max_run: int = 4
+
     #: After a cut, how many consecutive frames must agree on the new table
     #: before it is adopted.  One frame during a crossfade is a poor basis for
     #: a homography that everything downstream depends on.
@@ -371,11 +409,27 @@ class TrackerConfig:
 class EventConfig:
     """Collision / cushion / pot detection, all in physical units."""
 
-    #: Ball-ball contact when centre distance < this many ball diameters.
-    contact_distance_ball_diameters: float = 1.12
+    #: Ball-ball contact when the two came within this many ball diameters of
+    #: each other during the frame (see ``EventDetector._collisions``, which
+    #: measures the closest approach along their paths rather than sampling the
+    #: gap at the end of the frame).
+    #:
+    #: Balls that touch are exactly 1.0 diameters apart, so everything above
+    #: that is the measurement-error budget, and it has to be: the estimate
+    #: comes from two filtered paths, and smoothing rounds off the corner at
+    #: contact, so a real contact never quite reads as one.  Measured -- real
+    #: contacts read 0.80-1.12 on the three sample clips and 0.97-1.10 on the
+    #: synthetic clip; near misses that ground truth puts 1.46-1.50 diameters
+    #: apart read 1.40-1.51.  This sits in the gap between the two.
+    #:
+    #: It used to sit at 1.12, on the floor of that gap rather than in it,
+    #: which is why the cue ball on ``fedor_shot.mp4`` potted a ball and
+    #: reported no collision: the contact measured 1.1205.
+    contact_distance_ball_diameters: float = 1.25
 
-    #: Minimum closing speed for a contact to count as a real collision rather
-    #: than two balls resting against each other.
+    #: Minimum speed at which the gap between two balls has to be closing for
+    #: their contact to count as a collision rather than as two balls resting
+    #: against each other -- those are as close as it gets, forever.
     min_closing_speed_in_s: float = 6.0
 
     #: Minimum change in a ball's velocity vector for a cushion bounce, in in/s.

@@ -115,12 +115,21 @@ detections ──► Hungarian assignment (distance + colour) ──► Kalman f
    friction and process noise that loosens the moment something unexpected
    happens; globally optimal assignment on position *and* colour; coasting
    through occlusions instead of dying.
-4. **Analyse.** Events in physical units: contact within 1.12 ball diameters
-   *with a positive closing speed*, cushion bounces, pots — then grouped into
-   shots by ball motion.
+4. **Analyse.** Events in physical units: contact within 1.25 ball diameters
+   *with a gap that is actually shrinking*, measured as the two balls' closest
+   approach **during** the frame rather than the gap at the end of it — a cue
+   ball covers three or four inches between frames and contact is a shell a
+   quarter of an inch thick, so sampling alone misses most of them. Then
+   cushion bounces, pots, and the whole lot grouped into shots by ball motion.
 5. **Survive the cut.** Broadcasts change angle mid-clip. When the bed stops
    looking like cloth, tracking pauses rather than reporting balls in the crowd,
    and the table is re-found from several agreeing frames.
+6. **Don't measure the same frame twice.** Broadcast clips are routinely 25 fps
+   content rewrapped at 37.7, so one frame in three is a copy and nothing in
+   the file says so. A copy is replayed rather than measured, and the next
+   frame that is measured gets the whole interval as its `dt` — otherwise the
+   filter is told the ball did not move, and then handed one and a half frames
+   of travel at once.
 
 ## Accuracy
 
@@ -132,7 +141,7 @@ Measured against a physically simulated clip with exact ground truth:
 | Precision / recall | **1.000** / 0.937 |
 | ID switches over a full break | **2** |
 | Median position error | **0.150 in** (ball radius is 1.125 in) |
-| Speed, 1280x720 | **23 fps** |
+| Speed, 1280x720 | **23 fps** (27 on rewrapped broadcast footage, where a third of the frames are copies and never reach the detector) |
 
 Reproduce it:
 
@@ -158,13 +167,30 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 50
+pytest -q                  # all 73
 pytest -q -m "not slow"    # unit tests only
 ```
+
+`tools/evaluate.py` scores accuracy against the synthetic clip. The real clips
+have no ground truth, so how *noisy* their output is — phantom tracks, speed
+estimates that swing between frames, positions that jitter while nothing moves,
+events for things that did not happen — is measured separately, by
+self-consistency against physics:
+
+```bash
+python tools/run_report.py --ground-truth --note "what I changed"
+python tools/run_report.py --show
+```
+
+Each run appends an entry to [`reports/run-log.json`](reports/run-log.json)
+with the commit, the numbers for every clip and what it did *not* fix, so the
+state of the work is on disk rather than in someone's head.
 
 ## Limitations
 
 Racked balls resolve to roughly 6 of 8 while the rack is static (adjacent balls
 of similar colour share no visible edge); a ball sitting in the pocket jaws is
-reported as potted; a ball the same colour as the cloth is hard by construction.
-See [`UPGRADE_NOTES.md §9`](UPGRADE_NOTES.md#9-known-limitations).
+reported as potted; a ball the same colour as the cloth is hard by construction;
+a ball that rolls into the excluded rail margin is invisible there, so a slow
+cushion contact can go unreported even though the trajectory through it does
+not. See [`UPGRADE_NOTES.md §9`](UPGRADE_NOTES.md#9-known-limitations).

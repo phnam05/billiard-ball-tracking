@@ -11,6 +11,9 @@ table:
   view_change_patience: 3
   view_change_level: 0.031
   view_change_area_ratio: 0.12
+  repeat_frame_level: 0.125
+  repeat_frame_ball_areas: 0.02
+  repeat_frame_max_run: 4
   recovery_frames: 5
   recovery_max_spread_px: 12.0
   min_bed_coverage: 0.72
@@ -64,7 +67,7 @@ tracker:
   coast_frames_per_hit: 1.0
   stationary_speed_in_s: 4.0
 events:
-  contact_distance_ball_diameters: 1.12
+  contact_distance_ball_diameters: 1.25
   min_closing_speed_in_s: 6.0
   min_bounce_speed_change_in_s: 18.0
   cushion_proximity_ball_radii: 1.25

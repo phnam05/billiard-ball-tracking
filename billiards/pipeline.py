@@ -40,6 +40,18 @@ from .video import (
 )
 
 
+def _count_above(diff: np.ndarray, mask: np.ndarray, level: float) -> int:
+    """Pixels inside ``mask`` where ``diff`` exceeds ``level`` of full scale.
+
+    Kept in OpenCV rather than NumPy fancy indexing because it runs on every
+    frame of every clip: the boolean-mask version of this cost 19 ms a frame,
+    which is most of a detection pass.
+    """
+    threshold = max(1, int(round(level * 255.0)))
+    hot = cv2.threshold(diff, threshold, 255, cv2.THRESH_BINARY)[1]
+    return cv2.countNonZero(cv2.bitwise_and(hot, mask))
+
+
 @dataclass
 class FrameResult:
     frame_index: int
@@ -77,12 +89,25 @@ class TrackingPipeline:
         self._reference_coverage: Optional[float] = None
         self._low_coverage_frames = 0
         self._recovery_quads: List[np.ndarray] = []
-        #: Previous frame in grey, for the wholesale-change test below.
-        self._prev_grey: Optional[np.ndarray] = None
+        #: The previous frame, cropped to the bed, for the two frame-difference
+        #: tests below.  Grey is enough to see a cut; the repeat test needs
+        #: colour, because a ball can differ from the cloth in hue and not in
+        #: luminance.  Both are kept cropped because the bed is well under half
+        #: the frame and these run on every frame.
+        self._prev_bed: Optional[np.ndarray] = None
+        self._prev_bed_grey: Optional[np.ndarray] = None
+        self._bed_roi_cache: Optional[Tuple[Any, ...]] = None
         #: False while the calibrated table is not on screen.  Tracking is
         #: suspended rather than producing balls in the crowd.
         self.view_valid = True
         self.view_lost_frames = 0
+
+        #: The last frame that actually carried a measurement, replayed for the
+        #: frames that merely repeat it, and how many have been replayed in a
+        #: row.  See ``TableConfig.repeat_frame_ball_areas``.
+        self._last_measured: Optional[FrameResult] = None
+        self._repeat_run = 0
+        self.frames_repeated = 0
 
         #: Run-level totals.  The tracker and event detector are rebuilt from
         #: scratch on a recalibration, so their own counters restart; these
@@ -98,23 +123,41 @@ class TrackingPipeline:
         self, frame: np.ndarray, frame_index: int, annotate: bool = True
     ) -> FrameResult:
         t_s = frame_index / self.fps
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        cloth_mask = self.cloth.mask(hsv)
+        repainted, repeats = self._bed_change(frame)
+
+        if self._check_view(frame, hsv, cloth_mask, frame_index, repainted):
+            # The calibrated table is not on screen.  Reporting tracks here is
+            # worse than reporting nothing: on a broadcast cut it draws balls
+            # and trajectories over the crowd.
+            self.last_frame_index = frame_index
+            self._last_measured = None
+            self._repeat_run = 0
+            annotated = frame.copy() if annotate else None
+            if annotated is not None:
+                self.renderer.draw_hud(annotated, self.hud(frame_index, t_s))
+            return FrameResult(frame_index, t_s, [], [], [], annotated)
+
+        if (
+            repeats
+            and self._last_measured is not None
+            and self._repeat_run < self.cfg.table.repeat_frame_max_run
+        ):
+            self._repeat_run += 1
+            self.frames_repeated += 1
+            return self._replay(frame, frame_index, t_s, annotate)
+        self._repeat_run = 0
+
+        # Only frames that are measured advance the clock, so the interval the
+        # filters integrate over is the interval the picture actually changed
+        # across -- however many copies of it the file happened to contain.
         if self.last_frame_index is None:
             dt = 1.0 / self.fps
         else:
             dt = max(1, frame_index - self.last_frame_index) / self.fps
         self.last_frame_index = frame_index
-
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        cloth_mask = self.cloth.mask(hsv)
-
-        if self._check_view(frame, hsv, cloth_mask, frame_index):
-            # The calibrated table is not on screen.  Reporting tracks here is
-            # worse than reporting nothing: on a broadcast cut it draws balls
-            # and trajectories over the crowd.
-            annotated = frame.copy() if annotate else None
-            if annotated is not None:
-                self.renderer.draw_hud(annotated, self.hud(frame_index, t_s))
-            return FrameResult(frame_index, t_s, [], [], [], annotated)
 
         if (
             self.cfg.table.recalibration_interval > 0
@@ -126,7 +169,7 @@ class TrackingPipeline:
 
         detections = self.detector.detect(frame, hsv, cloth_mask)
         tracks = self.tracker.update(detections, dt, frame_index, t_s)
-        events = self.event_detector.step(tracks, frame_index, t_s)
+        events = self.event_detector.step(tracks, frame_index, t_s, dt)
         self.all_events.extend(events)
 
         # Pots are discovered when the tracker retires a track near a pocket.
@@ -155,7 +198,37 @@ class TrackingPipeline:
                 frame, tracks, detections, events, hud=self.hud(frame_index, t_s)
             )
 
-        return FrameResult(frame_index, t_s, detections, tracks, events, annotated)
+        result = FrameResult(frame_index, t_s, detections, tracks, events, annotated)
+        self._last_measured = result
+        return result
+
+    def _replay(
+        self, frame: np.ndarray, frame_index: int, t_s: float, annotate: bool
+    ) -> FrameResult:
+        """Re-report the last measurement, for a frame that carries no new one.
+
+        The tracks are the same objects, in the same place, so the per-frame
+        exports stay one row per ball per frame and the annotated video stays
+        one frame per input frame.  The event list is empty rather than a copy:
+        nothing happened here, and a caller accumulating ``result.events``
+        would otherwise count the same collision two or three times.  The
+        drawing still shows the last frame's events, so a contact marker does
+        not blink.
+        """
+        last = self._last_measured
+        assert last is not None  # guarded by the caller
+        annotated = None
+        if annotate:
+            annotated = self.renderer.draw(
+                frame,
+                last.tracks,
+                last.detections,
+                last.events,
+                hud=self.hud(frame_index, t_s),
+            )
+        return FrameResult(
+            frame_index, t_s, last.detections, last.tracks, [], annotated
+        )
 
     def hud(self, frame_index: int, t_s: float) -> Dict[str, object]:
         stats = self.tracker.last_stats
@@ -183,6 +256,7 @@ class TrackingPipeline:
         hsv: np.ndarray,
         cloth_mask: np.ndarray,
         frame_index: int,
+        repainted: bool,
     ) -> bool:
         """Return True when tracking should be suspended for this frame.
 
@@ -192,7 +266,6 @@ class TrackingPipeline:
         on spectators, and the tracker happily drew trajectories between them.
         """
         tcfg = self.cfg.table
-        repainted = self._bed_repainted(frame)
         if tcfg.view_change_coverage_ratio <= 0 and not repainted:
             return False
 
@@ -244,39 +317,91 @@ class TrackingPipeline:
             return False
         return True
 
-    def _bed_repainted(self, frame: np.ndarray) -> bool:
-        """Has most of the bed changed since the previous frame?
+    def _bed_change(self, frame: np.ndarray) -> Tuple[bool, bool]:
+        """How the bed differs from the previous frame, at both ends of the scale.
 
         Cloth coverage answers "does the bed still look like cloth?", which a
         dissolve between two shots of the same table passes for most of its
-        length -- the incoming angle is mostly cloth too.  This answers a
-        different question: "is this still the same picture?"
+        length -- the incoming angle is mostly cloth too.  One difference image
+        answers two questions coverage cannot, so it is computed once here.
 
-        The two are complementary because of how little of a table a game
-        actually moves.  A ball is a thousandth of the bed and a player leaning
-        over it is a few percent; measured across three clips, the busiest
-        frame of play repaints 6% of the bed.  A cut or a dissolve repaints
-        16-32% of it in a single frame, because every pixel is being mixed with
-        a different scene at once.
+        **Was the bed repainted?**  Then the camera cut.  The test works
+        because of how little of a table a game actually moves: a ball is a
+        thousandth of the bed and a player leaning over it is a few percent;
+        measured across three clips, the busiest frame of play repaints 6% of
+        the bed, against 16-32% for a cut, because every pixel is being mixed
+        with a different scene at once.
+
+        **Did the bed change at all?**  Then this frame is a copy of the one
+        before it and holds no new measurement -- see
+        ``TableConfig.repeat_frame_ball_areas``.  This one is measured across
+        the colour channels rather than on luminance, because a ball can differ
+        from the cloth in hue and barely at all in brightness, and that ball
+        moving is exactly what must not be mistaken for nothing happening.
+
+        A cut clears the repeat test by four orders of magnitude, so the two
+        can never both fire.
         """
         tcfg = self.cfg.table
-        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        previous, self._prev_grey = self._prev_grey, grey
-        if (
-            tcfg.view_change_area_ratio <= 0
-            or previous is None
-            or previous.shape != grey.shape
-        ):
-            return False
-
-        bed = self.detector.bed_mask(frame.shape) > 0
-        bed_area = int(np.count_nonzero(bed))
+        bed, bed_area = self._bed_roi(frame.shape)
         if bed_area == 0:
-            return False
+            self._prev_bed = self._prev_bed_grey = None
+            return False, False
 
-        level = max(1, int(round(tcfg.view_change_level * 255.0)))
-        changed = int(np.count_nonzero(cv2.absdiff(grey, previous)[bed] > level))
-        return changed / float(bed_area) >= tcfg.view_change_area_ratio
+        x, y, w, h = self._bed_roi_cache[1]
+        # Copied, not referenced: a caller decoding into a reused buffer would
+        # otherwise hand us the same array twice, every frame would compare
+        # equal to itself, and the pipeline would replay the first frame for
+        # the whole clip.
+        patch = frame[y : y + h, x : x + w].copy()
+        grey = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        prev, self._prev_bed = self._prev_bed, patch
+        prev_grey, self._prev_bed_grey = self._prev_bed_grey, grey
+        if prev is None or prev.shape != patch.shape:
+            return False, False
+
+        repainted = False
+        if tcfg.view_change_area_ratio > 0:
+            changed = _count_above(cv2.absdiff(grey, prev_grey), bed,
+                                   tcfg.view_change_level)
+            repainted = changed / float(bed_area) >= tcfg.view_change_area_ratio
+
+        repeats = False
+        if tcfg.repeat_frame_max_run > 0:
+            # A ball area, from the homography, is the unit here for the same
+            # reason it is everywhere else: it makes the threshold mean the
+            # same thing at any resolution or camera distance.
+            r_px = self.table.expected_ball_radius_px(
+                tuple(self.table.corners_image.mean(axis=0))
+            )
+            budget = tcfg.repeat_frame_ball_areas * np.pi * r_px * r_px
+            step = cv2.absdiff(patch, prev)
+            # The largest step over the channels, not their average: a ball
+            # can move a lot in one channel and nothing in the mean.
+            step = cv2.max(cv2.max(step[:, :, 0], step[:, :, 1]), step[:, :, 2])
+            repeats = _count_above(step, bed, tcfg.repeat_frame_level) <= budget
+        return repainted, repeats
+
+    def _bed_roi(self, shape: Tuple[int, ...]) -> Tuple[np.ndarray, int]:
+        """The bed mask cropped to its own bounding box, and its area.
+
+        Cached on the mask itself, which the detector already caches and
+        replaces whenever the geometry changes.
+        """
+        mask = self.detector.bed_mask(shape)
+        if self._bed_roi_cache is None or self._bed_roi_cache[0] is not mask:
+            bx, by, bw, bh = cv2.boundingRect(mask)
+            self._bed_roi_cache = (
+                mask,
+                (bx, by, bw, bh),
+                mask[by : by + bh, bx : bx + bw],
+                int(cv2.countNonZero(mask)),
+            )
+        return self._bed_roi_cache[2], self._bed_roi_cache[3]
+
+    def _bed_repainted(self, frame: np.ndarray) -> bool:
+        """Has most of the bed changed since the previous frame?  (A cut has.)"""
+        return self._bed_change(frame)[0]
 
     # -- recalibration -----------------------------------------------------
 
@@ -398,6 +523,7 @@ class TrackingPipeline:
             "events": self.event_summary(),
             "recalibrations": self.recalibrations,
             "frames_view_lost": self.view_lost_frames,
+            "frames_repeated": self.frames_repeated,
             "shots": len(self.shots.shots),
             "tracks_created": self._tracks_created_total + self.tracker.tracks_created,
             "tracks_alive": len(self.tracker.tracks),

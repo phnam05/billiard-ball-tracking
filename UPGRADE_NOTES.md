@@ -11,7 +11,11 @@ Two things make the numbers below trustworthy rather than impressions:
   virtual camera **with exact ground truth**, and `tools/evaluate.py` scores a
   run against it with the standard MOT protocol;
 * everything was then run against the three real match clips already in this
-  repo, which is where most of the interesting bugs turned up.
+  repo, which is where most of the interesting bugs turned up. Those clips have
+  no ground truth, so how *noisy* their output is — phantom tracks, speed
+  estimates that swing between frames, events for things that did not happen —
+  is scored separately by `tools/run_report.py`, against physics rather than
+  against a reference, and every run of it is kept in `reports/run-log.json`.
 
 ---
 
@@ -27,7 +31,7 @@ Two things make the numbers below trustworthy rather than impressions:
 | 95th-pct position error | — | 0.40 in |
 | Colour parameters to tune | 4 arrays, per ball, per video | **0** |
 | Pixel thresholds in the code | at least 6 | **0** |
-| Speed (1280×720) | n/a (blocked on a key press per frame) | **23 fps** |
+| Speed (1280×720) | n/a (blocked on a key press per frame) | **23 fps**, 27 on rewrapped broadcast footage |
 | Handles a camera cut | no | yes — pauses, re-finds the table |
 
 "v1" has no notion of multiple balls or identity, so most MOT metrics are
@@ -233,12 +237,74 @@ the recovered polygon is the table we were already calibrated to, tracking
 resumes on the existing tracks instead of rebuilding them, so ball identities
 survive the interruption rather than being renumbered on the other side of it.
 
+### 3.5a A repeated frame is not a measurement — `billiards/pipeline.py`
+
+All three sample clips are **25 fps content rewrapped at 37.7 fps**, so one
+frame in three is a copy of the one before it. Nothing in the file says so, and
+the pipeline used to measure each copy as if it were new evidence.
+
+That is double counting, and it is worse than it sounds. A copy tells the
+filter the ball did not move over 1/37.7 s, which collapses its velocity
+estimate; the next real frame then hands it one and a half frames of travel at
+once. On `fedor_shot.mp4` a cue ball rolling smoothly at about 100 in/s was
+reported at 30, 75, 9, 124 and 160 in/s on successive frames. The wreckage
+downstream:
+
+* the estimate dropped below the at-rest threshold in the middle of the roll,
+  so a **second "struck" event** fired for a ball that had never stopped;
+* the ball was stepped over the contact window, so the shot **potted a ball and
+  reported no collision**;
+* blobs on the player's gloved hand reached the three hits that confirm a
+  track, because three copies of one picture counted as three sightings — which
+  is where `#9` and `#10` came from.
+
+The test is the frame-difference the cut detector already computes, read at the
+other end of the scale: not "was the bed repainted?" but "did the bed change at
+all?". A copy moves **no** bed pixel by more than an eighth of full scale,
+measured across the colour channels — zero, on all three clips — while one ball
+shifting by a single pixel repaints fifty. So a frame that moved less than two
+hundredths of a ball area is replayed rather than measured, and the next frame
+that *is* measured gets the whole interval as its `dt`. The geometry was never
+wrong; only the clock was.
+
+Colour rather than luminance, because a ball can differ from the cloth in hue
+and barely at all in brightness, and that ball moving is precisely what must
+not be mistaken for nothing happening.
+
+At most four frames in a row are dropped. The bed is genuinely still between
+shots — two seconds of it on these clips — and extrapolating a Kalman filter
+across that in one step makes its association gate wider than the table.
+
+Replayed frames still produce their CSV row and their frame of annotated video,
+so a copy in the input is a copy in the output; what they do not produce is a
+second measurement or a second event.
+
 ### 3.6 Events and shots — `billiards/events.py`, `billiards/shots.py`
 
-`distance < 20` pixels became: closer than **1.12 ball diameters** *and* with a
-positive closing speed. Requiring the balls to be approaching is what stops two
-balls resting against each other from emitting a collision every frame. Cushion
-contacts, pots and balls struck are detected on the same physical basis.
+`distance < 20` pixels became: closer than **1.25 ball diameters** *and* with a
+gap that is actually shrinking. Requiring the balls to be approaching is what
+stops two balls resting against each other from emitting a collision every
+frame — those are as close as it gets, forever. Cushion contacts, pots and
+balls struck are detected on the same physical basis.
+
+Contact is measured **over the frame, not at the end of it**. Testing only
+where the balls are now cannot work at the speeds a break reaches: two balls
+are in contact across a shell 0.27 in thick, from 1.12 diameters apart down to
+touching, and a cue ball crossing the table covers three or four inches between
+frames, so it lands inside that shell about one time in fifteen. On
+`fedor_shot.mp4` the gap between the cue ball and the ball it pocketed read
+3.72 in on one frame and 2.53 in on the next, against a 2.52 in threshold. Both
+balls travel in a straight line over one frame, though, so their closest
+approach *during* it is exact arithmetic — `events.closest_approach` — and that
+is what the contact distance is compared against.
+
+The gate then had to move, because 1.12 diameters is only 0.27 in of
+measurement-error budget and the estimate comes from two *filtered* paths:
+smoothing rounds off the corner at contact, so a real contact never quite reads
+as one. Measured — real contacts read **0.80–1.12** diameters on the three
+sample clips and 0.97–1.10 on the synthetic one; near misses that ground truth
+puts 1.46–1.50 diameters apart read 1.40–1.51. At 1.12 the gate sat on the
+floor of that gap; at **1.25** it sits in it.
 
 Those raw events are then grouped into **shots**, because a flat list of
 "collision at t=4.12s between track 3 and track 7" is accurate but not readable.
@@ -291,7 +357,8 @@ potted #7 -- 5.4s`.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **50 tests**, including end-to-end accuracy assertions and a camera-cut test.
+* **73 tests**, including end-to-end accuracy assertions, a camera-cut test
+  and a repeated-frame test.
 * Works **headless**.
 
 ---
@@ -311,6 +378,15 @@ to every printed digit:
 
 9.8 → **23.3 fps** on 1280×720 broadcast footage.
 
+Not measuring a repeated frame twice is worth another **1.3×** on top of that,
+since a third of the frames in these clips no longer reach the detector at all:
+21.4 → **27.3 fps** on `fedor_shot.mp4`. That only came out as a speed win
+after the two frame-difference tests were moved into OpenCV — the first version
+counted changed pixels with a NumPy boolean mask, which costs 19 ms a frame at
+720p, more than the detection pass it was saving. Cropped to the bed's bounding
+box and done with `absdiff` / `threshold` / `countNonZero`, the pair costs
+1.2 ms.
+
 ---
 
 ## 7. Reproducing the numbers
@@ -325,6 +401,17 @@ python tools/evaluate.py --gt out/gt.csv --tracks out/tracks.csv
 pip install -r requirements-dev.txt
 pytest -q                  # all
 pytest -q -m "not slow"    # unit tests only
+```
+
+The accuracy numbers above are from the synthetic clip, which has ground truth.
+The noise numbers quoted for the real clips — tracks reported against balls
+actually on the table, the swing in a ball's estimated speed between frames,
+phantom events — come from `tools/run_report.py`, and every run of it is
+appended to `reports/run-log.json` with the commit and what it did *not* fix:
+
+```bash
+python tools/run_report.py --ground-truth --note "what I changed"
+python tools/run_report.py --show
 ```
 
 ---
@@ -344,6 +431,8 @@ You should not need to touch colour at all. In rough order of likelihood:
 | `detector.rim_contrast_min` | A ball almost the colour of the cloth is missed (lower), or a body part is still detected (raise). Real balls measured 23–63 on the sample clips, a hand 5–19. |
 | `detector.cluster_core_coverage_min` / `cluster_rim_contrast_min` | A split blob is believed if it passes either. Balls in a dense rack are dropped (lower either), or a hand on the bed still yields balls (raise both). |
 | `tracker.coast_frames_per_hit` | A ball hidden for a long time is renumbered when it reappears (raise), or brief false detections still draw trajectories (lower). |
+| `table.repeat_frame_ball_areas` | A slow-rolling ball is being replayed instead of measured (lower), or a clip with sensor noise never registers a repeated frame (raise). `repeat_frame_max_run: 0` turns the whole thing off. |
+| `events.contact_distance_ball_diameters` | Obvious contacts are missed (raise), or balls that clearly passed each other are reported as collisions (lower). Real contacts measured 0.80–1.12 on the sample clips, near misses 1.40+. |
 | `tracker.max_speed_in_s` | Only if you film something faster than a pool break. |
 
 Start with `python main.py calibrate <video> --save-preview calib.png`. Almost
@@ -372,6 +461,19 @@ every tracking problem is visible there first.
   the aspect gate can reject; the track coasts through instead.
 * A **cue stick lying across the bed with a hand on it** can occasionally form a
   ball-sized blob and start a short-lived track.
+* A ball that rolls into the **excluded rail margin** (`bed_margin` is 0.35 ball
+  diameters, or 0.79 in) is undetectable there, so a cushion contact taken
+  slowly can be missed: on `fedor_shot.mp4` the cue ball is unobserved for six
+  frames precisely while it bounces off the far rail, which smears the velocity
+  reversal across three coasting frames and never shows the 18 in/s jump the
+  cushion test looks for. The event is missing; the trajectory through it is
+  not.
+* **Residual speed jitter on rewrapped broadcast footage**, about 4 in/s on
+  `fedor_shot.mp4`. Dropping the duplicated frames fixes the zero-motion
+  measurements, but the distinct frames that remain are still irregularly
+  spaced in *true* time — the container is constant-rate at 37.5 fps while
+  source frames appear at one, two or three slot intervals — and nothing in the
+  file records which. `dt` from the frame index is the best estimate available.
 
 ---
 
@@ -394,7 +496,22 @@ billiards/
   cli.py         command line interface
 tools/
   make_synthetic_clip.py   physics simulator + renderer + ground truth
-  evaluate.py              MOT scoring
+  evaluate.py              MOT scoring, against the synthetic clip
+  run_report.py            noise metrics on the real clips, appended to a log
 legacy/          the original v1 code, kept for comparison
-tests/           50 tests
+reports/         run-log.json: one entry per change-and-re-measure cycle
+tests/           73 tests
+```
+
+`evaluate.py` and `run_report.py` answer different questions, and both are
+needed. The real clips have no ground truth, so "is this output noisy?" cannot
+be answered with MOTA; it is answered by self-consistency against physics —
+tracks reported against balls actually on the table, how much a ball's
+estimated speed swings between frames while it rolls smoothly, how far a ball
+at rest is reported to move, whether the shot log says what a player saw. The
+synthetic clip is then the guard against a noise fix that quietly costs recall:
+
+```bash
+python tools/run_report.py --ground-truth --note "what I changed"
+python tools/run_report.py --show          # the whole history
 ```

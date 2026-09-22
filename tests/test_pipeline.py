@@ -288,6 +288,59 @@ def test_a_ball_that_truly_stops_can_be_struck_again():
     assert len(_struck_events(detector, _FakeTrack(), profile)) == 2
 
 
+def test_contact_is_found_even_when_the_ball_steps_over_it():
+    """Two balls are in contact across a shell a quarter of an inch thick, and
+    a cue ball crossing the table covers three or four inches between frames,
+    so sampling the gap at the end of the frame finds contact about one time in
+    fifteen.  On fedor_shot.mp4 the gap read 3.72 in on one frame and 2.53 in
+    on the next, against a 2.52 in threshold: the shot potted a ball and
+    reported no collision."""
+    from billiards.events import closest_approach
+
+    d = 2.25
+    # The cue ball runs along y=0 at eight inches a frame and clips a ball
+    # sitting 2.3 in off its line.  Sampled at either end of the frame it is
+    # 4.6 in away; halfway through it is touching.
+    gap = np.array([4.0, 2.3])
+    change = np.array([-8.0, 0.0])
+    s, dist = closest_approach(gap, change)
+    assert s == pytest.approx(0.5)
+    assert dist == pytest.approx(2.3), "contact during the frame must be found"
+    assert min(
+        np.linalg.norm(gap), np.linalg.norm(gap + change)
+    ) > 1.25 * d, "...and neither endpoint would have found it"
+
+
+def test_a_grazing_pass_is_not_a_contact():
+    """The other half of the gate: measuring over the whole frame must not turn
+    every near miss into a collision.  Ground truth puts real near misses
+    1.46-1.50 diameters apart."""
+    from billiards.events import closest_approach
+
+    gap = np.array([6.0, 4.0])
+    change = np.array([-12.0, 0.0])  # sails past, four inches to the side
+    _, dist = closest_approach(gap, change)
+    assert dist == pytest.approx(4.0)
+    assert dist > 1.25 * 2.25
+
+
+def test_two_balls_frozen_together_never_collide():
+    """They are as close as it gets, forever, so proximity alone would fire on
+    every frame for the rest of the clip.  The gap has to be shrinking."""
+    detector = _detector()
+    a, b = _FakeTrack(), _FakeTrack()
+    b.track_id = 2
+    b.kf = type(a.kf)((50.0 + 2.25, 25.0))
+
+    fired = []
+    for i in range(30):
+        fired += [
+            e for e in detector.step([a, b], i, i / 30.0, 1 / 30)
+            if e.type.value == "collision"
+        ]
+    assert fired == []
+
+
 def test_cushion_proximity_allows_for_one_frame_of_travel():
     """A break travels ~200 in/s, nearly 7 inches per frame at 30 fps, so by
     the time the velocity reversal is observable the ball is well off the
