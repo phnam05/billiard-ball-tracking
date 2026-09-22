@@ -121,8 +121,35 @@ the homography at each image location**.
   brightness edge, and an edge the splitter cannot see is a ball it cannot find.
   That change alone took recall 0.898 → **0.953** and ID switches 4 → 1.
 * **A blob thinner than a ball cannot contain one.** Gating on the maximum of
-  the distance transform is what keeps the cue stick, the bridge hand and rail
-  glare out — with no length or colour threshold to tune.
+  the distance transform is what keeps the cue stick and rail glare out — with
+  no length or colour threshold to tune.
+* **A split blob has to look like a group of balls, and a bridge hand manages
+  it neither way.** A hand defeats every other test in the list: its knuckles
+  are ball-thick, so the distance-transform gate passes the blob, and the
+  splitter finds three convincing round peaks inside it. Two things separate
+  the cases, and a blob only has to manage one.
+
+  *It accounts for itself* — a group of touching balls is a union of discs of
+  one known radius, so once the discs are drawn there should be nothing
+  ball-thick left over. What *is* left over may be thin: a cue shaft, the cast
+  shadow welding two balls together, a sleeve. None of those could hide a ball.
+
+  *Or its discs sit on real ball edges.* Failing the first test does not prove
+  the blob is not balls — it may be balls the splitter could not separate. A
+  racked triangle of same-coloured neighbours yields five of eight, so its
+  discs account for 0.60 of it, and rejecting on that alone **cost nine points
+  of recall** against ground truth (0.937 → 0.844) before the second test was
+  added. Those five still sit on unmistakable circular edges, which knuckles do
+  not. Measured over four clips, the median rim contrast of a blob's candidates
+  is **64–115 for an under-split rack and 62–65 for a well-split pair, against
+  16–46 for a hand**; the threshold sits in that gap.
+* **A ball ends at its rim.** One radius out there is cloth, or another ball,
+  but never more of the same ball, so the colour step across the rim is large
+  in almost every direction — 23–63 Lab units for real balls across the three
+  clips. A disc drawn inside a hand, a forearm or a sleeve scores 5–19, because
+  the material simply continues. Taking the median over 24 directions is what
+  keeps a ball that is half hidden behind another, or clipped by the bed edge,
+  from failing it.
 * **Which ball is the cue ball is a question about the whole set**, not about
   each ball alone: a table has exactly one cue ball and one 8. Classifying
   independently produced two cue balls and four 8 balls on a real clip, because
@@ -158,6 +185,14 @@ the homography at each image location**.
 * **Track lifecycle**: tentative → confirmed → coasting → deleted, with a
   physical gate. A track that disappears near a pocket is reported as **potted**
   rather than lost.
+* **Coasting is extrapolation, and has to be paid for.** How far a track may be
+  extrapolated is capped by how much evidence built its motion model: one frame
+  of coasting per frame actually observed. A ball watched for five hundred
+  frames still gets the full window, which it needs, because the player's body
+  hides it for most of a stroke. A blob that looked like a ball three frames
+  running gets three — where before it drew forty-five frames of confident
+  trajectory on the strength of nothing. On the real clips the tracks this
+  removes had six observations and sixty frames of invented path.
 
 ### 3.5 Camera cuts — `billiards/pipeline.py`
 
@@ -173,6 +208,30 @@ for a frame with no table in it — and the table is then re-found from **severa
 agreeing frames**, as the initial calibration does, rather than from one frame
 of a crossfade. A candidate table is adopted only if its polygon is mostly
 cloth, which is what separates a table from a sponsor banner.
+
+Coverage alone is a lagging signal, though, and a **dissolve** is what exposes
+it: a broadcast crossfades between two shots of the same sport, so the incoming
+angle is mostly cloth too and the outgoing bed polygon stays cloth-coloured
+well into the transition. On `fedor_shot.mp4` coverage decays from 0.98 to 0.38
+over nineteen frames, and tracking ran for twelve of them with the crowd, the
+rails and a second table all inside a stale bed polygon. Those twelve frames
+created **thirty phantom tracks** — half the clip's total.
+
+So the bed is also watched for **wholesale change frame to frame**, which is a
+different question: not "does this still look like cloth?" but "is this still
+the same picture?". The two are complementary because of how little of a table
+a game actually moves. Measured across the three clips, the busiest frame of
+play repaints 6% of the bed and a typical one under 2%; a cut or a dissolve
+repaints **16–32%** in a single frame. That is acted on immediately, with no
+patience — a cut is not ambiguous — and recovery does not even start until the
+picture settles, because a quad fitted from a frame that is half one shot and
+half another describes neither.
+
+Coming back is now free when the view comes back **unchanged** — a replay, a
+dissolve that resolves to the shot it started from, a hand over the lens. If
+the recovered polygon is the table we were already calibrated to, tracking
+resumes on the existing tracks instead of rebuilding them, so ball identities
+survive the interruption rather than being renumbered on the other side of it.
 
 ### 3.6 Events and shots — `billiards/events.py`, `billiards/shots.py`
 
@@ -281,6 +340,10 @@ You should not need to touch colour at all. In rough order of likelihood:
 | `detector.pocket_exclusion_ball_diameters` | Balls near a pocket are missed (lower), or pocket jaws still detect (raise). |
 | `cloth.hue_sigmas` / `sat_sigmas` | The cloth mask looks visibly wrong in `calibrate --save-preview`. |
 | `table.view_change_coverage_ratio` | Tracking pauses too eagerly on heavy occlusion (lower), or keeps going through cuts (raise). |
+| `table.view_change_area_ratio` | Tracking pauses on a very fast pan or a strobing light (raise), or runs on through a dissolve (lower). 0 disables. |
+| `detector.rim_contrast_min` | A ball almost the colour of the cloth is missed (lower), or a body part is still detected (raise). Real balls measured 23–63 on the sample clips, a hand 5–19. |
+| `detector.cluster_core_coverage_min` / `cluster_rim_contrast_min` | A split blob is believed if it passes either. Balls in a dense rack are dropped (lower either), or a hand on the bed still yields balls (raise both). |
+| `tracker.coast_frames_per_hit` | A ball hidden for a long time is renumbered when it reappears (raise), or brief false detections still draw trajectories (lower). |
 | `tracker.max_speed_in_s` | Only if you film something faster than a pool break. |
 
 Start with `python main.py calibrate <video> --save-preview calib.png`. Almost
@@ -293,6 +356,12 @@ every tracking problem is visible there first.
 * A **tightly racked triangle** yields roughly 6 of 8 balls while it is static;
   all of them appear as soon as the rack separates. Adjacent balls of similar
   colour genuinely share no visible edge.
+* A **stub of the cue shaft** cut off by the bed edge, with the player's body
+  hiding the rest of it, is not separable from a ball resting on the cushion by
+  any measurement in the pipeline: on `albin_fedor.mp4` the stub is 0.4 of a
+  ball in area and 0.55 ball radii thick, and the real 8 ball on
+  `fedor_shot.mp4` is 0.49 and 0.54. It survives as one intermittent track. The
+  gates that would remove it would cost real balls, so it is left in.
 * A ball **resting in the pocket jaws** is inside the excluded region and is
   reported as `potted`.
 * **Cloth-coloured balls** are hard by construction — the detector looks for

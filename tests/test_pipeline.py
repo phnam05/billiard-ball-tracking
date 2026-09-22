@@ -400,6 +400,87 @@ def test_tracking_pauses_when_the_table_leaves_the_view(synthetic_clip, tmp_path
         assert per_frame.get(f, 0) == 0, f"tracks reported on frame {f} with no table"
 
 
+@pytest.mark.slow
+def test_a_dissolve_does_not_invent_balls(synthetic_clip, tmp_path):
+    """The case cloth coverage is blind to.
+
+    A broadcast crossfades between two shots of the *same* sport, so the
+    incoming angle is mostly cloth as well and the outgoing bed polygon keeps
+    passing the coverage test most of the way through the transition.  On a
+    real clip that bought twelve frames in which the crowd, the rails and a
+    second table were all inside a stale bed polygon, and those twelve frames
+    created thirty phantom tracks -- half of everything the clip produced.
+
+    Early in a fade the table really is still there and tracking it is right,
+    so what this pins is not "stop immediately" but "create nothing": the
+    dissolve must not leave the run with more balls than the table has.  It
+    does not care which guard gets there first -- on this clip, deliberately
+    lower in contrast than a real cut, the detector's own tests are what hold
+    (35 tracks without them, 9 with); ``test_a_cut_is_seen_the_frame_it_starts``
+    covers the signal meant for a full-contrast transition.
+    """
+    import cv2
+
+    src = cv2.VideoCapture(synthetic_clip["video"])
+    frames = []
+    while True:
+        ok, f = src.read()
+        if not ok:
+            break
+        frames.append(f)
+    src.release()
+    assert frames
+
+    clean = run(
+        Config(),
+        RunOptions(video=synthetic_clip["video"], progress_every=0),
+    )
+
+    h, w = frames[0].shape[:2]
+    rng = np.random.default_rng(3)
+    # A busy, cloth-free scene, deliberately lower in contrast than a real cut
+    # to a crowd -- the transition this has to survive is the hard one.
+    after = rng.integers(0, 255, (h, w, 3), dtype=np.uint8) // 2 + 40
+
+    last = frames[-1]
+    fade = [
+        cv2.addWeighted(last, 1.0 - a, after, a, 0.0)
+        for a in np.linspace(0.0, 1.0, 12)
+    ]
+    hold = [after.copy() for _ in range(25)]
+
+    mixed = tmp_path / "dissolve.mp4"
+    writer = cv2.VideoWriter(str(mixed), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (w, h))
+    for f in frames + fade + hold:
+        writer.write(f)
+    writer.release()
+
+    csv_path = tmp_path / "tracks.csv"
+    summary = run(
+        Config(),
+        RunOptions(video=str(mixed), export_csv=str(csv_path), progress_every=0),
+    )
+
+    assert summary["tracks_created"] <= clean["tracks_created"] + 2, (
+        "the dissolve created {} tracks where the clip alone creates {}".format(
+            summary["tracks_created"], clean["tracks_created"]
+        )
+    )
+
+    import csv as _csv
+    from collections import Counter
+
+    per_frame = Counter()
+    with csv_path.open(encoding="utf-8", newline="") as fh:
+        for row in _csv.DictReader(fh):
+            per_frame[int(row["frame"])] += 1
+
+    # ...and once the table is gone outright, nothing at all.
+    hold_start = len(frames) + len(fade)
+    for f in range(hold_start + 5, hold_start + len(hold)):
+        assert per_frame.get(f, 0) == 0, f"tracks reported on frame {f} with no table"
+
+
 class TestFailsClearly:
     """A tool that needs no tuning still has to say what went wrong when it
     genuinely cannot proceed.  These pin the wording, because a vague error is

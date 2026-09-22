@@ -325,7 +325,7 @@ class MultiObjectTracker:
             if track.state is TrackState.TENTATIVE:
                 if track.time_since_update > tc.max_age_tentative:
                     reason = "spurious"
-            elif track.time_since_update > tc.max_age_coasting:
+            elif track.time_since_update > self._coasting_budget(track):
                 reason = "lost"
 
             # A coasting track predicted well off the bed is either potted or a
@@ -351,6 +351,18 @@ class MultiObjectTracker:
             else:
                 alive.append(track)
         self.tracks = alive
+
+    def _coasting_budget(self, track: Track) -> float:
+        """How many frames this track may go unseen before it is dropped.
+
+        A coasting track is being extrapolated from its motion model, and how
+        far that is worth trusting depends on how much was measured to build
+        it.  A ball watched for five hundred frames has earned the full window
+        -- it needs it, because the player's body hides it for most of a
+        stroke.  A blob that was confirmed on three frames has earned three.
+        """
+        tc = self.cfg.tracker
+        return min(float(tc.max_age_coasting), tc.coast_frames_per_hit * track.hits)
 
     # -- accessors ---------------------------------------------------------
 

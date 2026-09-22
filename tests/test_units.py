@@ -407,3 +407,311 @@ def test_signature_blend_moves_towards_target():
     mid = a.blend(b, 0.5)
     assert np.allclose(mid.lab, [150.0, 150.0, 150.0])
     assert mid.white_fraction == pytest.approx(0.5)
+
+
+# --------------------------------------------------------------------------
+# Telling a ball from a hand
+# --------------------------------------------------------------------------
+
+
+def _lab_of(bgr, shape=(160, 160)):
+    """A solid-colour Lab image to draw test objects on."""
+    img = np.zeros((shape[0], shape[1], 3), np.uint8)
+    img[:] = bgr
+    return img
+
+
+def test_rim_contrast_is_high_for_a_ball_on_cloth():
+    """A ball ends at its rim: one radius out, the colour is cloth."""
+    import cv2
+
+    from billiards.detect import rim_contrast, sample_signature
+
+    frame = _lab_of((120, 130, 90))  # cloth
+    cv2.circle(frame, (80, 80), 14, (40, 40, 220), -1)  # a red ball
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
+    sig = sample_signature(lab, (80.0, 80.0), 14.0)
+    assert rim_contrast(lab, (80.0, 80.0), 14.0, sig) > 30.0
+
+
+def test_rim_contrast_is_low_for_a_disc_inside_something_larger():
+    """The hand case.  A ball-sized, ball-round, ball-thick patch of a hand
+    passes every shape test there is; what it cannot do is stop being a hand
+    one radius further out."""
+    import cv2
+
+    from billiards.detect import rim_contrast, sample_signature
+
+    frame = _lab_of((120, 130, 90))
+    cv2.circle(frame, (80, 80), 55, (90, 110, 160), -1)  # a big patch of skin
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
+    sig = sample_signature(lab, (80.0, 80.0), 14.0)
+    assert rim_contrast(lab, (80.0, 80.0), 14.0, sig) < 5.0
+
+
+def test_rim_contrast_survives_a_ball_touching_a_neighbour():
+    """Most of the rim still meets cloth, and the median only needs most."""
+    import cv2
+
+    from billiards.detect import rim_contrast, sample_signature
+
+    frame = _lab_of((120, 130, 90))
+    cv2.circle(frame, (80, 80), 14, (40, 40, 220), -1)
+    cv2.circle(frame, (108, 80), 14, (220, 60, 40), -1)  # touching neighbour
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
+    sig = sample_signature(lab, (80.0, 80.0), 14.0)
+    assert rim_contrast(lab, (80.0, 80.0), 14.0, sig) > 25.0
+
+
+def _detector_on(frame, cfg=None):
+    """A BallDetector looking at a plain overhead table filling the frame."""
+    import cv2
+
+    from billiards.detect import BallDetector
+    from billiards.table import ClothModel
+
+    cfg = cfg or Config()
+    h, w = frame.shape[:2]
+    corners = np.array(
+        [[10.0, 10.0], [w - 10.0, 10.0], [w - 10.0, h - 10.0], [10.0, h - 10.0]]
+    )
+    table = TableModel(
+        corners,
+        length_in=cfg.table.length_in,
+        width_in=cfg.table.width_in,
+        ball_diameter_in=cfg.table.ball_diameter_in,
+        has_pockets=False,
+        image_size=(w, h),
+    )
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    sample = hsv[5, 5]
+    cloth = ClothModel(
+        hue=float(sample[0]), sat=float(sample[1]), val=float(sample[2]),
+        hue_halfwidth=8.0, sat_halfwidth=45.0, val_halfwidth=60.0,
+    )
+    return BallDetector(cfg, table, cloth), table
+
+
+def _blank_table(w=800, h=400, cloth=(120, 130, 90)):
+    frame = np.zeros((h, w, 3), np.uint8)
+    frame[:] = cloth
+    return frame
+
+
+def test_a_cluster_of_touching_balls_is_still_detected():
+    """The guard below must not cost us a rack."""
+    import cv2
+
+    frame = _blank_table()
+    detector, table = _detector_on(frame)
+    r = int(round(table.expected_ball_radius_px((400.0, 200.0))))
+    centres = [(400, 200), (400 + 2 * r, 200), (400 + r, 200 + 2 * r)]
+    for i, (x, y) in enumerate(centres):
+        cv2.circle(frame, (x, y), r, [(40, 40, 220), (220, 60, 40), (30, 200, 230)][i], -1)
+
+    found = detector.detect(frame)
+    assert len(found) >= 3, [d.to_dict() for d in found]
+
+
+def test_a_hand_shaped_blob_yields_no_balls():
+    """A palm with fingers: ball-thick, ball-round in places, and ten times a
+    ball in area.  Splitting it finds convincing round peaks; the discs those
+    peaks imply account for almost none of it, which is the tell."""
+    import cv2
+
+    frame = _blank_table()
+    detector, table = _detector_on(frame)
+    r = int(round(table.expected_ball_radius_px((400.0, 200.0))))
+    skin = (90, 110, 160)
+    cv2.ellipse(frame, (400, 200), (3 * r, 2 * r), 0, 0, 360, skin, -1)
+    for dx in (-2, -1, 0, 1, 2):
+        cv2.line(
+            frame, (400 + dx * r, 200), (400 + dx * r, 200 - 5 * r), skin, max(2, r // 2)
+        )
+
+    found = detector.detect(frame)
+    assert found == [], [d.to_dict() for d in found]
+    assert detector.last_debug["rejected"]["not_balls"] >= 1
+
+
+def test_a_rack_the_splitter_under_separates_is_still_believed():
+    """Failing to account for a blob does not prove it is not balls.
+
+    Same-coloured neighbours in a rack share no visible edge, so the splitter
+    finds five of eight and the discs cover 0.60 of the blob.  Rejecting on
+    that alone cost nine points of recall against ground truth.  The balls it
+    did find still sit on unmistakable circular edges, which is the second way
+    a blob can be believed.
+    """
+    import cv2
+
+    frame = _blank_table()
+    detector, table = _detector_on(frame)
+    r = int(round(table.expected_ball_radius_px((400.0, 200.0))))
+    # Nine balls racked tight, three of them sharing a colour with a neighbour
+    # so that the splitter cannot separate every pair.
+    colours = [
+        (40, 40, 220), (40, 40, 220), (220, 60, 40),
+        (30, 200, 230), (30, 200, 230), (140, 50, 110),
+        (60, 140, 55), (60, 140, 55), (24, 24, 26),
+    ]
+    k = 0
+    for row in range(3):
+        for col in range(row + 1):
+            x = 400 + row * int(1.74 * r)
+            y = 200 + (2 * col - row) * r
+            cv2.circle(frame, (x, y), r, colours[k], -1)
+            k += 1
+
+    found = detector.detect(frame)
+    assert len(found) >= 4, [d.to_dict() for d in found]
+
+
+def test_the_cluster_guard_can_be_switched_off():
+    cfg = Config()
+    cfg.detector.cluster_core_coverage_min = 0.0
+    cfg.detector.rim_contrast_min = 0.0
+    import cv2
+
+    frame = _blank_table()
+    detector, table = _detector_on(frame, cfg)
+    r = int(round(table.expected_ball_radius_px((400.0, 200.0))))
+    cv2.ellipse(frame, (400, 200), (3 * r, 2 * r), 0, 0, 360, (90, 110, 160), -1)
+    assert detector.detect(frame), "guard disabled, so the blob should split"
+
+
+# --------------------------------------------------------------------------
+# Coasting is extrapolation, and has to be paid for
+# --------------------------------------------------------------------------
+
+
+def _tracker_with(cfg=None):
+    from billiards.track import MultiObjectTracker
+
+    cfg = cfg or Config()
+    return MultiObjectTracker(cfg, _demo_table(), fps=30.0), cfg
+
+
+def _detection_at(xy, cfg):
+    from billiards.detect import ColorSignature, Detection
+
+    return Detection(
+        centre_image=(0.0, 0.0),
+        centre_table=xy,
+        radius_px=10.0,
+        area_ratio=1.0,
+        circularity=0.9,
+        signature=ColorSignature(lab=np.array([150.0, 130.0, 130.0])),
+        rim_contrast=40.0,
+    )
+
+
+def test_a_barely_seen_track_is_dropped_long_before_a_well_seen_one():
+    """A blob that looked like a ball three frames running should not then
+    draw forty-five frames of confident trajectory on the strength of it."""
+    tracker, cfg = _tracker_with()
+    pos = (50.0, 25.0)
+
+    for _ in range(cfg.tracker.min_hits_to_confirm):
+        tracker.update([_detection_at(pos, cfg)], 1 / 30, 0, 0.0)
+    flimsy = tracker.tracks[0]
+    assert flimsy.state.value == "confirmed"
+
+    for i in range(20):
+        tracker.update([], 1 / 30, i, i / 30.0)
+    assert flimsy.death_reason == "lost"
+    assert flimsy.death_frame is not None and flimsy.death_frame <= 5
+
+
+def test_a_long_lived_track_still_gets_the_full_coasting_window():
+    tracker, cfg = _tracker_with()
+    pos = (50.0, 25.0)
+    for i in range(120):
+        tracker.update([_detection_at(pos, cfg)], 1 / 30, i, i / 30.0)
+    solid = tracker.tracks[0]
+
+    for i in range(cfg.tracker.max_age_coasting):
+        tracker.update([], 1 / 30, 200 + i, (200 + i) / 30.0)
+    assert solid.is_alive, "a ball watched for 120 frames must survive an occlusion"
+
+
+
+# --------------------------------------------------------------------------
+# Seeing a camera cut
+# --------------------------------------------------------------------------
+
+
+def _pipeline_over(frame):
+    from billiards.pipeline import TrackingPipeline
+    from billiards.table import ClothModel
+    import cv2
+
+    h, w = frame.shape[:2]
+    corners = np.array(
+        [[10.0, 10.0], [w - 10.0, 10.0], [w - 10.0, h - 10.0], [10.0, h - 10.0]]
+    )
+    cfg = Config()
+    table = TableModel(
+        corners,
+        length_in=cfg.table.length_in,
+        width_in=cfg.table.width_in,
+        ball_diameter_in=cfg.table.ball_diameter_in,
+        has_pockets=False,
+        image_size=(w, h),
+    )
+    sample = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)[5, 5]
+    cloth = ClothModel(
+        hue=float(sample[0]), sat=float(sample[1]), val=float(sample[2]),
+        hue_halfwidth=8.0, sat_halfwidth=45.0, val_halfwidth=60.0,
+    )
+    return TrackingPipeline(cfg, table, cloth, fps=30.0), cfg
+
+
+def test_a_ball_rolling_across_the_bed_does_not_read_as_a_cut():
+    """The margin this signal lives or dies by.
+
+    Measured over the three sample clips, the busiest frame of play repaints
+    6% of the bed and a typical one under 2%, against 16-32% for a cut.  A
+    ball is a thousandth of the bed, so even nine of them moving at once come
+    nowhere near the threshold.
+    """
+    import cv2
+
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    r = int(round(pipe.table.expected_ball_radius_px((400.0, 200.0))))
+
+    before = frame.copy()
+    for i in range(9):
+        cv2.circle(before, (100 + 70 * i, 200), r, (40, 40, 220), -1)
+    after = frame.copy()
+    for i in range(9):
+        cv2.circle(after, (100 + 70 * i, 260), r, (40, 40, 220), -1)
+
+    pipe._bed_repainted(before)
+    assert not pipe._bed_repainted(after)
+
+
+def test_a_cut_is_seen_the_frame_it_starts():
+    """No patience, because a cut is not ambiguous.  Waiting for cloth coverage
+    to collapse instead cost twelve frames on real footage, which was long
+    enough to confirm thirty phantom tracks."""
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+
+    rng = np.random.default_rng(1)
+    elsewhere = rng.integers(0, 256, frame.shape, dtype=np.uint8)
+
+    pipe._bed_repainted(frame)
+    assert pipe._bed_repainted(elsewhere)
+
+
+def test_the_cut_test_can_be_switched_off():
+    frame = _blank_table()
+    pipe, cfg = _pipeline_over(frame)
+    pipe.cfg.table.view_change_area_ratio = 0.0
+    rng = np.random.default_rng(1)
+    pipe._bed_repainted(frame)
+    assert not pipe._bed_repainted(
+        rng.integers(0, 256, frame.shape, dtype=np.uint8)
+    )

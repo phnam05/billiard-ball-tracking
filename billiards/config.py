@@ -83,6 +83,25 @@ class TableConfig:
     view_change_coverage_ratio: float = 0.55
     view_change_patience: int = 3
 
+    #: Coverage alone is a lagging signal, because a broadcast dissolve mixes
+    #: two shots of the *same* sport: the incoming angle is mostly cloth too,
+    #: so the outgoing bed polygon stays cloth-coloured well into the
+    #: transition.  On one clip that bought twelve frames in which the crowd,
+    #: the rails and a second table were all inside the stale bed polygon, and
+    #: those twelve frames spawned thirty phantom balls.
+    #:
+    #: So the bed is also watched for wholesale change frame to frame.  Balls
+    #: and players repaint a small part of it -- the busiest frame of a break
+    #: moves about 3% of the bed -- while a cut or a dissolve repaints most of
+    #: it at once, measured at 16-32%.  Above this fraction the view has
+    #: changed, with no patience: a cut is not ambiguous.
+    #:
+    #: ``view_change_level`` is how much a pixel must move to count as changed,
+    #: as a fraction of full scale, and sits well above sensor and compression
+    #: noise.  Set ``view_change_area_ratio`` to 0 to disable the test.
+    view_change_level: float = 0.031
+    view_change_area_ratio: float = 0.12
+
     #: After a cut, how many consecutive frames must agree on the new table
     #: before it is adopted.  One frame during a crossfade is a poor basis for
     #: a homography that everything downstream depends on.
@@ -235,6 +254,45 @@ class DetectorConfig:
     split_peak_min_ratio: float = 0.55
     split_peak_max_ratio: float = 1.75
 
+    #: A split blob has to look like a group of balls in one of two ways, and
+    #: a bridge hand on the bed manages neither.  A hand is ten ball-areas of
+    #: "not cloth" whose knuckles are ball-thick and roughly ball-sized, so the
+    #: splitter happily reports three balls inside it -- and on broadcast
+    #: footage one of them wins the CUE label from the real cue ball.
+    #:
+    #: The first way is arithmetic: a group of touching balls *is* a union of
+    #: discs of the known radius, so once the discs are placed, the blob's
+    #: ball-thick core (distance transform above half a ball radius) should be
+    #: covered.  This is the fraction of that core the discs must explain.
+    #:
+    #: The second way exists because failing the first does not prove the blob
+    #: is not balls -- it may be balls the splitter could not separate.  A
+    #: racked triangle of same-coloured neighbours yields five of eight, so its
+    #: discs cover 0.60 of it; rejecting on that alone cost 9 points of recall
+    #: on the ground-truth clip.  See ``cluster_rim_contrast_min``.
+    cluster_core_coverage_min: float = 0.85
+
+    #: ...the second way: the discs sit on unmistakable ball edges.  This is
+    #: the smallest *median* ``rim_contrast`` across a blob's candidates for it
+    #: to be believed despite not accounting for itself.  A blob is a clump of
+    #: balls or it is not -- one ball and two knuckles is not a thing -- so the
+    #: whole blob is judged together.
+    #:
+    #: Measured over four clips: an under-split rack scores 64-115 and a
+    #: well-split pair 62-65, against 16-46 for a hand.  The threshold sits in
+    #: that gap.
+    cluster_rim_contrast_min: float = 55.0
+
+    #: A ball *ends* at its rim: one ball-radius out, the colour has to change,
+    #: because what surrounds a ball is cloth or another ball and never more of
+    #: itself.  This is the smallest median colour step (weighted CIE Lab, the
+    #: same metric the tracker matches identities with) across the rim, taken
+    #: over directions so a partly occluded ball still passes.
+    #:
+    #: A disc drawn anywhere inside a hand, a forearm or a shirt fails it: the
+    #: material simply continues.  Set to 0 to disable.
+    rim_contrast_min: float = 12.0
+
     #: Cap on detections per frame (guards against a pathological frame).
     max_detections: int = 40
 
@@ -290,6 +348,19 @@ class TrackerConfig:
     min_hits_to_confirm: int = 3
     max_age_coasting: int = 45
     max_age_tentative: int = 3
+
+    #: Coasting is extrapolation, so how far a track may be extrapolated is
+    #: capped by how much evidence built its motion model: this many frames of
+    #: coasting per frame the track was actually observed, up to
+    #: ``max_age_coasting``.
+    #:
+    #: Without it, a blob that happened to look like a ball three frames
+    #: running is confirmed and then draws a confident trajectory for the full
+    #: coasting window on the strength of nothing -- on real clips the survivors
+    #: were tracks with six observations and sixty frames of invented path.  A
+    #: ball that has been watched for hundreds of frames is unaffected, which is
+    #: the point: it has earned the benefit of the doubt.
+    coast_frames_per_hit: float = 1.0
 
     #: A ball is treated as stationary below this speed, which suppresses
     #: trajectory jitter when nothing is moving.

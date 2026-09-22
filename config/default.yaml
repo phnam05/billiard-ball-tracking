@@ -9,6 +9,8 @@ table:
   recalibration_interval: 150
   view_change_coverage_ratio: 0.55
   view_change_patience: 3
+  view_change_level: 0.031
+  view_change_area_ratio: 0.12
   recovery_frames: 5
   recovery_max_spread_px: 12.0
   min_bed_coverage: 0.72
@@ -42,6 +44,9 @@ detector:
   pocket_exclusion_ball_diameters: 1.45
   split_peak_min_ratio: 0.55
   split_peak_max_ratio: 1.75
+  cluster_core_coverage_min: 0.85
+  cluster_rim_contrast_min: 55.0
+  rim_contrast_min: 12.0
   max_detections: 40
 tracker:
   max_speed_in_s: 700.0
@@ -56,6 +61,7 @@ tracker:
   min_hits_to_confirm: 3
   max_age_coasting: 45
   max_age_tentative: 3
+  coast_frames_per_hit: 1.0
   stationary_speed_in_s: 4.0
 events:
   contact_distance_ball_diameters: 1.12

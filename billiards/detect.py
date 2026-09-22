@@ -200,6 +200,61 @@ def sample_signature(
     )
 
 
+#: Directions sampled around a candidate's rim.  Twenty-four is enough for the
+#: median to survive a ball that is half hidden behind another.
+_RIM_ANGLES = np.linspace(0.0, 2.0 * np.pi, 24, endpoint=False)
+_RIM_COS = np.cos(_RIM_ANGLES)
+_RIM_SIN = np.sin(_RIM_ANGLES)
+
+#: Where the surroundings are sampled, in ball radii: just outside the rim, but
+#: well inside where a touching neighbour's own centre would sit.
+_RIM_RADII = (1.22, 1.42)
+
+
+def rim_contrast(
+    lab_image: np.ndarray,
+    centre: Tuple[float, float],
+    radius_px: float,
+    signature: ColorSignature,
+) -> float:
+    """How strongly this disc's colour differs from what surrounds it.
+
+    A ball *ends* at its rim.  One radius out there is cloth, or another ball,
+    but never more of the same ball, so the colour step across the rim is large
+    in almost every direction.
+
+    A disc drawn inside something larger fails exactly here, which is what a
+    bridge hand on the bed is.  Its knuckles are ball-thick, roughly ball-sized
+    and convincingly round, so every shape test the detector applies says
+    "ball"; what gives them away is that one radius further out there is simply
+    more hand.  The median over directions is used rather than the mean so that
+    a ball touching a neighbour, or clipped by the edge of the bed, still scores
+    high.
+    """
+    h, w = lab_image.shape[:2]
+    cx, cy = centre
+    # Per direction, the larger step over the sampled radii; -1 marks a
+    # direction that fell outside the image at every radius, which is dropped
+    # rather than counted as "no edge here".
+    best = np.full(_RIM_ANGLES.shape, -1.0)
+    for frac in _RIM_RADII:
+        xs = np.rint(cx + frac * radius_px * _RIM_COS).astype(np.int32)
+        ys = np.rint(cy + frac * radius_px * _RIM_SIN).astype(np.int32)
+        inside = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+        if not np.any(inside):
+            continue
+        around = lab_image[ys[inside], xs[inside]].astype(np.float64)
+        delta = (around - signature.lab.astype(np.float64)) * _LAB_WEIGHTS
+        # Sampling two radii keeps a ball whose cast shadow hugs one side from
+        # reading as no edge at all.
+        best[inside] = np.maximum(best[inside], np.linalg.norm(delta, axis=1))
+
+    seen = best[best >= 0.0]
+    if seen.size == 0:
+        return 0.0
+    return float(np.median(seen))
+
+
 # --------------------------------------------------------------------------
 # Detections
 # --------------------------------------------------------------------------
@@ -258,6 +313,8 @@ class Detection:
     circularity: float
     signature: ColorSignature
     from_cluster: bool = False
+    #: Median colour step across the rim -- see ``rim_contrast``.
+    rim_contrast: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -269,6 +326,7 @@ class Detection:
             "area_ratio": round(self.area_ratio, 3),
             "circularity": round(self.circularity, 3),
             "from_cluster": self.from_cluster,
+            "rim_contrast": round(self.rim_contrast, 1),
             "colour": self.signature.to_dict(),
         }
 
@@ -388,7 +446,7 @@ class BallDetector:
 
         num, labels, stats, centroids = cv2.connectedComponentsWithStats(fg, 8)
         detections: List[Detection] = []
-        rejected = {"area": 0, "shape": 0, "outside": 0}
+        rejected = {"area": 0, "shape": 0, "outside": 0, "rim": 0, "not_balls": 0}
 
         for i in range(1, num):
             x, y, w, h, area = stats[i]
@@ -410,11 +468,15 @@ class BallDetector:
                 centres = self._split_cluster(
                     component, r_expected, offset=(x, y), colour=lab, area=int(area)
                 )
+                if not centres:
+                    rejected["not_balls"] += 1
                 for c in centres:
                     det = self._make_detection(
                         c, r_expected, ratio, 1.0, lab, from_cluster=True
                     )
-                    if det is not None:
+                    if det is None:
+                        rejected["rim"] += 1
+                    else:
                         detections.append(det)
                 continue
 
@@ -424,11 +486,15 @@ class BallDetector:
                 continue
 
             centre = self._refine_centre(component, offset=(x, y))
+            table_xy = self._table_point(centre)
+            if table_xy is None:
+                rejected["outside"] += 1
+                continue
             det = self._make_detection(
                 centre, r_expected, ratio, circularity, lab, from_cluster=False
             )
             if det is None:
-                rejected["outside"] += 1
+                rejected["rim"] += 1
                 continue
             detections.append(det)
 
@@ -446,6 +512,15 @@ class BallDetector:
 
     # -- helpers -----------------------------------------------------------
 
+    def _table_point(self, centre: Tuple[float, float]) -> Optional[Tuple[float, float]]:
+        """Where this image point sits on the bed, or None if it is off it."""
+        table_pt = self.table.image_to_table([centre])[0]
+        table_xy = (float(table_pt[0]), float(table_pt[1]))
+        margin = -0.75 * self.table.ball_radius_in  # allow slight overhang
+        if not self.table.contains(table_xy, margin):
+            return None
+        return table_xy
+
     def _make_detection(
         self,
         centre: Tuple[float, float],
@@ -455,14 +530,20 @@ class BallDetector:
         lab: np.ndarray,
         from_cluster: bool,
     ) -> Optional[Detection]:
-        table_pt = self.table.image_to_table([centre])[0]
-        table_xy = (float(table_pt[0]), float(table_pt[1]))
-        margin = -0.75 * self.table.ball_radius_in  # allow slight overhang
-        if not self.table.contains(table_xy, margin):
+        table_xy = self._table_point(centre)
+        if table_xy is None:
             return None
         # Radius recomputed at the refined centre: matters on wide-angle views.
         r = self.table.expected_ball_radius_px_table(table_xy)
         sig = sample_signature(lab, centre, r)
+
+        # ...and it has to *stop* being that colour one radius further out.
+        # Everything above this line is happy with any ball-sized round thing;
+        # this is the test a knuckle fails.
+        rim = rim_contrast(lab, centre, r, sig)
+        if rim < self.cfg.detector.rim_contrast_min:
+            return None
+
         return Detection(
             centre_image=(float(centre[0]), float(centre[1])),
             centre_table=table_xy,
@@ -471,6 +552,7 @@ class BallDetector:
             circularity=float(circularity),
             signature=sig,
             from_cluster=from_cluster,
+            rim_contrast=rim,
         )
 
     def _check_shape(self, component: np.ndarray) -> Tuple[bool, float]:
@@ -600,7 +682,75 @@ class BallDetector:
 
         # Never report more balls than could physically fit in the blob.
         max_balls = max(1, int(np.ceil(area / (0.68 * np.pi * r_expected**2))))
-        return kept[:max_balls]
+        kept = kept[:max_balls]
+
+        if not self._is_made_of_balls(kept, dist, pad, r_expected, offset, colour):
+            return []
+        return kept
+
+    def _is_made_of_balls(
+        self,
+        centres: Sequence[Tuple[float, float]],
+        dist: np.ndarray,
+        pad: int,
+        r_expected: float,
+        offset: Tuple[int, int],
+        colour: np.ndarray,
+    ) -> bool:
+        """Is this blob a group of balls, or a hand?
+
+        Every individual check upstream passes on a bridge hand: its knuckles
+        are ball-thick, so the distance-transform gate lets the blob in, and
+        the splitter finds three convincing round peaks inside it.  Two things
+        separate the cases, and a blob only has to manage one of them.
+
+        **It accounts for itself.**  A group of touching balls is a union of
+        discs of one known radius, so once the discs are drawn there should be
+        nothing ball-thick left over.  What *is* left over may be thin -- a cue
+        shaft, the cast shadow welding two balls together, a sleeve -- because
+        none of those could hide a ball.  Three discs explain essentially all
+        of a two-ball clump and about a third of a hand.
+
+        **Or its discs sit on real ball edges.**  Failing the first test does
+        not prove the blob is not balls: it may be balls the splitter could not
+        separate.  A racked triangle of same-coloured neighbours gives five of
+        eight, so its discs cover 0.60 of it -- and rejecting on that alone
+        cost nine points of recall against ground truth.  But those five sit on
+        unmistakable circular edges, which the knuckles do not.  The blob is
+        judged as a whole, by the median, because a blob is a clump of balls or
+        it is not; one ball and two knuckles is not a thing.
+        """
+        cfg = self.cfg.detector
+        if cfg.cluster_core_coverage_min <= 0.0:
+            return True
+        if not centres:
+            return False
+
+        # The blob's ball-thick core: anywhere a ball could actually be hiding.
+        core = dist >= 0.5 * r_expected
+        core_area = int(np.count_nonzero(core))
+        if core_area == 0:
+            return False
+
+        explained = np.zeros(dist.shape, dtype=np.uint8)
+        radius = max(1, int(round(r_expected)))
+        for cx, cy in centres:
+            cv2.circle(
+                explained,
+                (int(round(cx - offset[0] + pad)), int(round(cy - offset[1] + pad))),
+                radius,
+                255,
+                -1,
+            )
+        covered = int(np.count_nonzero(core & (explained > 0)))
+        if covered / float(core_area) >= cfg.cluster_core_coverage_min:
+            return True
+
+        rims = [
+            rim_contrast(colour, c, r_expected, sample_signature(colour, c, r_expected))
+            for c in centres
+        ]
+        return float(np.median(rims)) >= cfg.cluster_rim_contrast_min
 
     def _dt_peaks(
         self,

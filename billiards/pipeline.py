@@ -77,6 +77,8 @@ class TrackingPipeline:
         self._reference_coverage: Optional[float] = None
         self._low_coverage_frames = 0
         self._recovery_quads: List[np.ndarray] = []
+        #: Previous frame in grey, for the wholesale-change test below.
+        self._prev_grey: Optional[np.ndarray] = None
         #: False while the calibrated table is not on screen.  Tracking is
         #: suspended rather than producing balls in the crowd.
         self.view_valid = True
@@ -190,7 +192,8 @@ class TrackingPipeline:
         on spectators, and the tracker happily drew trajectories between them.
         """
         tcfg = self.cfg.table
-        if tcfg.view_change_coverage_ratio <= 0:
+        repainted = self._bed_repainted(frame)
+        if tcfg.view_change_coverage_ratio <= 0 and not repainted:
             return False
 
         coverage = self.detector.bed_cloth_coverage(cloth_mask)
@@ -200,7 +203,16 @@ class TrackingPipeline:
 
         threshold = tcfg.view_change_coverage_ratio * self._reference_coverage
 
-        if coverage >= threshold and self.view_valid:
+        if repainted and self.view_valid:
+            # A cut needs no patience and no second opinion: nothing that
+            # happens *on* a table repaints it.  Acting on the first frame is
+            # the whole point -- by the time coverage has collapsed far enough
+            # to notice, a dissolve has already been fed to the tracker for a
+            # dozen frames, which is long enough to confirm phantom tracks.
+            self.view_valid = False
+            self._low_coverage_frames = 0
+            self._recovery_quads.clear()
+        elif coverage >= threshold and self.view_valid:
             self._low_coverage_frames = 0
             self._recovery_quads.clear()
             return False
@@ -215,6 +227,13 @@ class TrackingPipeline:
             self._recovery_quads.clear()
 
         self.view_lost_frames += 1
+        if repainted:
+            # Mid-transition.  The quad fitted from a frame that is half one
+            # shot and half another describes neither, so recovery does not
+            # even start until the picture settles.
+            self._recovery_quads.clear()
+            return True
+
         # Look for the table in the new view.  Adopting it takes several
         # agreeing frames, exactly as the initial calibration does -- a single
         # frame during a crossfade is a bad basis for a homography that
@@ -224,6 +243,40 @@ class TrackingPipeline:
             self._low_coverage_frames = 0
             return False
         return True
+
+    def _bed_repainted(self, frame: np.ndarray) -> bool:
+        """Has most of the bed changed since the previous frame?
+
+        Cloth coverage answers "does the bed still look like cloth?", which a
+        dissolve between two shots of the same table passes for most of its
+        length -- the incoming angle is mostly cloth too.  This answers a
+        different question: "is this still the same picture?"
+
+        The two are complementary because of how little of a table a game
+        actually moves.  A ball is a thousandth of the bed and a player leaning
+        over it is a few percent; measured across three clips, the busiest
+        frame of play repaints 6% of the bed.  A cut or a dissolve repaints
+        16-32% of it in a single frame, because every pixel is being mixed with
+        a different scene at once.
+        """
+        tcfg = self.cfg.table
+        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        previous, self._prev_grey = self._prev_grey, grey
+        if (
+            tcfg.view_change_area_ratio <= 0
+            or previous is None
+            or previous.shape != grey.shape
+        ):
+            return False
+
+        bed = self.detector.bed_mask(frame.shape) > 0
+        bed_area = int(np.count_nonzero(bed))
+        if bed_area == 0:
+            return False
+
+        level = max(1, int(round(tcfg.view_change_level * 255.0)))
+        changed = int(np.count_nonzero(cv2.absdiff(grey, previous)[bed] > level))
+        return changed / float(bed_area) >= tcfg.view_change_area_ratio
 
     # -- recalibration -----------------------------------------------------
 
@@ -243,18 +296,32 @@ class TrackingPipeline:
         separates a table from a sponsor banner, and stops a bad recalibration
         from replacing a good calibration with nonsense.
         """
-        candidate = TableModel(
-            corners_image=quad,
-            length_in=self.cfg.table.length_in,
-            width_in=self.cfg.table.width_in,
-            ball_diameter_in=self.cfg.table.ball_diameter_in,
-            has_pockets=self.table.has_pockets,
-            image_size=(frame.shape[1], frame.shape[0]),
-        )
-        candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
+        unchanged = self._same_table(quad)
+        if unchanged:
+            candidate, candidate_detector = self.table, self.detector
+        else:
+            candidate = TableModel(
+                corners_image=quad,
+                length_in=self.cfg.table.length_in,
+                width_in=self.cfg.table.width_in,
+                ball_diameter_in=self.cfg.table.ball_diameter_in,
+                has_pockets=self.table.has_pockets,
+                image_size=(frame.shape[1], frame.shape[0]),
+            )
+            candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
+
         coverage = candidate_detector.bed_cloth_coverage(self.cloth.mask(hsv))
         if coverage < self.cfg.table.min_bed_coverage:
             return False
+
+        if unchanged:
+            # The view went away and came back on the same table -- a replay,
+            # a dissolve that resolved to the shot it started from, a hand
+            # over the lens.  Rebuilding here would throw away every ball's
+            # identity for nothing, so tracking simply resumes.
+            self._reference_coverage = None
+            self._recovery_quads.clear()
+            return True
 
         self._tracks_created_total += self.tracker.tracks_created
         self.table = candidate
@@ -267,6 +334,12 @@ class TrackingPipeline:
         self._reference_coverage = None
         self._recovery_quads.clear()
         return True
+
+    def _same_table(self, quad: np.ndarray) -> bool:
+        """Is this candidate the table we are already calibrated to?"""
+        drift = float(np.max(np.linalg.norm(self.table.corners_image - quad, axis=1)))
+        short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
+        return drift <= self.cfg.table.recalibration_tolerance * short_side_px
 
     def _try_recover(
         self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
@@ -306,9 +379,7 @@ class TrackingPipeline:
         if quad is None:
             return False
 
-        drift = float(np.max(np.linalg.norm(self.table.corners_image - quad, axis=1)))
-        short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
-        if drift <= self.cfg.table.recalibration_tolerance * short_side_px:
+        if self._same_table(quad):
             return False
         return self._adopt_table(quad, frame, hsv)
 
