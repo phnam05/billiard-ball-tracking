@@ -238,3 +238,4 @@ runs/
 *_tracks.csv
 *_events.json
 *_calibration.json
+results/
