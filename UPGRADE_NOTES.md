@@ -414,6 +414,11 @@ python tools/run_report.py --ground-truth --note "what I changed"
 python tools/run_report.py --show
 ```
 
+That run also rewrites `results/` — the annotated video, the per-frame CSV, the
+run JSON and the calibration preview for each clip — so whatever is sitting
+there to look at is always what the code currently does. A stale video in an
+output directory is worse than an empty one: it says nothing changed.
+
 ---
 
 ## 8. If you do need to tune something
@@ -500,6 +505,7 @@ tools/
   run_report.py            noise metrics on the real clips, appended to a log
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
+results/         rewritten by run_report.py; annotated video + data per clip
 tests/           73 tests
 ```
 

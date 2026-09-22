@@ -368,6 +368,141 @@
         "id_switches": 2,
         "position_error_in_median": 0.151
       }
+    },
+    {
+      "id": "2026-09-22T16:16:29+07:00",
+      "commit": "e33a39b",
+      "dirty": true,
+      "note": "Re-render results/ from the current code. run_report.py now rewrites the annotated video, the CSV, the run JSON and the calibration preview for every clip on every run, into results/ rather than a side directory -- the files there were still the 09:39 run, so the fixes read as 'nothing changed' when looked at rather than measured.",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 1,
+          "frames": 751,
+          "frames_repeated": 405,
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 13,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #4 first -- 1 cushion -- 3 contacts -- nothing potted -- 2.1s",
+            "shot 2: #10 struck -- nothing potted -- 5.4s"
+          ],
+          "processing_fps": 16.88,
+          "tracks_reported": 10,
+          "short_tracks": [
+            12
+          ],
+          "peak_speed_in_s": 572.3,
+          "speed_jitter_in_s": {
+            "mean": 13.66,
+            "max": 438.1,
+            "samples": 191
+          },
+          "rest_jitter_in": {
+            "mean": 0.009,
+            "max": 0.441,
+            "samples": 3825
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "frames": 375,
+          "frames_repeated": 213,
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3
+          },
+          "shots": [
+            "shot 1: CUE struck -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 16.67,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 180.2,
+          "speed_jitter_in_s": {
+            "mean": 4.85,
+            "max": 82.4,
+            "samples": 296
+          },
+          "rest_jitter_in": {
+            "mean": 0.012,
+            "max": 0.366,
+            "samples": 2703
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #8 first -- potted #8 -- 10.2s"
+          ],
+          "processing_fps": 16.72,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 112.8,
+          "speed_jitter_in_s": {
+            "mean": 4.58,
+            "max": 63.1,
+            "samples": 252
+          },
+          "rest_jitter_in": {
+            "mean": 0.005,
+            "max": 0.328,
+            "samples": 3378
+          }
+        }
+      },
+      "open_issues": [
+        "fedor_shot: the cue ball's cushion bounce at the far rail is not reported. It rolls into the excluded rail margin (bed_margin 0.35 diameters = 0.79 in) and is unobserved for 6 frames precisely while it bounces, so the velocity reversal is smeared across 3 coasting frames and never shows the 18 in/s jump the cushion test needs.",
+        "Residual speed jitter (~4 in/s mean on fedor_shot) is the distinct frames being irregularly spaced in true time: the container is CFR 37.5 fps but source frames appear at 1, 2 or 3 slot intervals, and nothing in the file records which.",
+        "albin_fedor: the cue ball is renumbered 2 -> 10 at the pocket. Its track is killed as off_table because a 572 in/s velocity estimate flings the prediction clean off the table, and a new track is born in the same place 5 frames later.",
+        "albin_fedor: peak speed reads 572 in/s on a shot averaging 160. At that speed the ball smears 18 px per frame, so the blob centroid is unreliable and one step in twelve comes out 3x too long. Pre-existing (baseline read 466); not caused by the repeat-frame work and not fixed by it.",
+        "albin_fedor: 3 phantom tracks remain (1 and 9 at the far rail, alive 110 and 47 frames, probably the cue shaft; 12 on the player's hand for 6 frames). Only 12 is short enough for the short_tracks metric to catch."
+      ],
+      "ground_truth": {
+        "recall": 0.937,
+        "precision": 1.0,
+        "mota": 0.9358,
+        "id_switches": 2,
+        "position_error_in_median": 0.151
+      }
     }
   ],
   "clips": {

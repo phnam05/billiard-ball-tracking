@@ -184,7 +184,10 @@ python tools/run_report.py --show
 
 Each run appends an entry to [`reports/run-log.json`](reports/run-log.json)
 with the commit, the numbers for every clip and what it did *not* fix, so the
-state of the work is on disk rather than in someone's head.
+state of the work is on disk rather than in someone's head — and it rewrites
+`results/` (annotated video, CSV, run JSON and calibration preview per clip),
+because a number says whether something improved and only the video says
+whether it looks right. `--no-render` skips that when you only want numbers.
 
 ## Limitations
 

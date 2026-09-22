@@ -15,10 +15,17 @@ Every run is appended to ``reports/run-log.json`` with the commit it came from
 and a note saying what changed, so the next session can see where things stood
 without re-deriving it.
 
+It also **rewrites everything in ``results/``** -- the annotated video, the
+per-frame CSV, the run JSON and the calibration preview for every clip -- so
+that what is on disk to look at is always what the code currently does.  A
+number in a log answers "did it get better?"; only the video answers "does it
+look right?", and a stale video in ``results/`` reads as "nothing changed".
+
 Usage::
 
     python tools/run_report.py --note "what I changed"
     python tools/run_report.py --note "..." --ground-truth   # also score MOTA
+    python tools/run_report.py --note "..." --no-render      # numbers only, faster
     python tools/run_report.py --show                        # print the log
 """
 
@@ -159,19 +166,45 @@ def noise_metrics(csv_path: Path, stationary_speed_in_s: float) -> Dict[str, Any
 # --------------------------------------------------------------------------
 
 
-def measure_clip(name: str, spec: Dict[str, Any], out_dir: Path) -> Dict[str, Any]:
+def measure_clip(
+    name: str, spec: Dict[str, Any], out_dir: Path, render: bool = True
+) -> Dict[str, Any]:
     video = ROOT / spec["video"]
     if not video.exists():
         return {"skipped": f"{spec['video']} is not in the repo"}
 
     cfg = Config().apply_preset()
     csv_path = out_dir / f"{name}_tracks.csv"
+    json_path = out_dir / f"{name}_run.json"
+    video_path = out_dir / f"{name}_tracked.mp4"
+    preview_path = out_dir / f"preview_{name}.png"
+
     summary = run(
         cfg,
-        RunOptions(video=str(video), export_csv=str(csv_path), progress_every=0),
+        RunOptions(
+            video=str(video),
+            output=str(video_path) if render else None,
+            export_csv=str(csv_path),
+            export_json=str(json_path),
+            progress_every=0,
+        ),
     )
+    written = [csv_path, json_path] + ([video_path] if render else [])
+
+    if render:
+        # The preview panel lives in the CLI's calibrate command, and shelling
+        # out to it is also what produced the file that is already in results/,
+        # so the two stay comparable.
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "main.py"), "calibrate", str(video),
+             "--save-preview", str(preview_path)],
+            capture_output=True, text=True,
+        )
+        if proc.returncode == 0:
+            written.append(preview_path)
 
     record: Dict[str, Any] = {
+        "written": [str(p.relative_to(ROOT)) for p in written],
         "balls_visible": spec["balls_visible"],
         "real_pots": spec["real_pots"],
         "frames": summary["frames_processed"],
@@ -189,13 +222,13 @@ def measure_clip(name: str, spec: Dict[str, Any], out_dir: Path) -> Dict[str, An
     return record
 
 
-def measure_ground_truth(out_dir: Path) -> Dict[str, Any]:
+def measure_ground_truth(out_dir: Path, render: bool = True) -> Dict[str, Any]:
     """The accuracy side, so a noise fix that cost accuracy cannot hide."""
     sys.path.insert(0, str(ROOT / "tools"))
     from evaluate import evaluate, load_ground_truth, load_tracks  # noqa: E402
 
-    video = out_dir / "break.mp4"
-    gt = out_dir / "gt.csv"
+    video = out_dir / "synthetic_break.mp4"
+    gt = out_dir / "synthetic_gt.csv"
     tracks = out_dir / "synthetic_tracks.csv"
     subprocess.run(
         [sys.executable, str(ROOT / "tools" / "make_synthetic_clip.py"),
@@ -205,7 +238,12 @@ def measure_ground_truth(out_dir: Path) -> Dict[str, Any]:
 
     run(
         Config().apply_preset(),
-        RunOptions(video=str(video), export_csv=str(tracks), progress_every=0),
+        RunOptions(
+            video=str(video),
+            output=str(out_dir / "synthetic_tracked.mp4") if render else None,
+            export_csv=str(tracks),
+            progress_every=0,
+        ),
     )
     report = evaluate(load_ground_truth(gt), load_tracks(tracks), gate_in=2.25)
     return {
@@ -313,7 +351,10 @@ def print_log(log: Dict[str, Any]) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("--note", help="what changed since the last entry")
     ap.add_argument(
         "--open-issue",
@@ -334,9 +375,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="also build the synthetic clip and score accuracy (slow)",
     )
     ap.add_argument(
+        "--no-render",
+        action="store_true",
+        help="skip the annotated video and the calibration preview; the "
+             "numbers are the same and the run is quicker, but there is then "
+             "nothing new in results/ to look at",
+    )
+    ap.add_argument(
         "--out-dir",
-        default=str(ROOT / "results" / "report"),
-        help="where the per-clip CSVs go (not committed)",
+        default=str(ROOT / "results"),
+        help="where the annotated videos, CSVs, JSON and previews go "
+             "(results/, which is not committed)",
     )
     ap.add_argument("--show", action="store_true", help="print the log and exit")
     ap.add_argument(
@@ -363,11 +412,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    render = not args.no_render
     names = args.clips or sorted(SAMPLE_CLIPS)
     clips: Dict[str, Any] = {}
     for name in names:
         print(f"[report] {name} ...", flush=True)
-        clips[name] = measure_clip(name, SAMPLE_CLIPS[name], out_dir)
+        clips[name] = measure_clip(name, SAMPLE_CLIPS[name], out_dir, render)
 
     entry: Dict[str, Any] = {
         "id": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -379,13 +429,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     }
     if args.ground_truth:
         print("[report] synthetic ground truth ...", flush=True)
-        entry["ground_truth"] = measure_ground_truth(out_dir)
+        entry["ground_truth"] = measure_ground_truth(out_dir, render)
 
     log.setdefault("metrics", METRICS_MEANING).update(METRICS_MEANING)
     log["runs"].append(entry)
     save_log(log)
     print_log({"runs": [entry]})
     print(f"\n[report] appended to {LOG_PATH.relative_to(ROOT)}")
+
+    # Name the files, with their timestamps: the whole point of rewriting them
+    # is that someone opens them, and a path they cannot tell is fresh is no
+    # better than the stale one it replaced.
+    written = [w for clip in clips.values() for w in clip.get("written", [])]
+    if written:
+        print("[report] rewrote, watch these:")
+        for path in sorted(written, key=lambda p: (not p.endswith(".mp4"), p)):
+            full = ROOT / path
+            stamp = datetime.fromtimestamp(full.stat().st_mtime).strftime("%H:%M:%S")
+            print(f"           {stamp}  {path}")
+    elif render:
+        print("[report] nothing was written to results/")
+    else:
+        print("[report] --no-render: results/ still holds the previous run")
     return 0
 
 
