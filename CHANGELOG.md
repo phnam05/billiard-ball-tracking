@@ -1,9 +1,9 @@
 # Changelog
 
-What changed, compared against the version on GitHub. The reasons behind each
+What changed, newest first. The reasons behind each
 change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
-## [Unreleased] — 2026-09-26 (work computer, not yet committed)
+## 2026-09-26 — commit `0fe9fc9` (with 23 Sep)
 
 ### Added
 
@@ -102,7 +102,7 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
   *unseen* for that long, in the jaws or under a hand, still is.
   `fedor_shot` and `fedor_jump` now report 4 cushions each, as in the video.
 
-## [Unreleased] — 2026-09-23 (work computer, not yet committed)
+## 2026-09-23 — in commit `0fe9fc9`
 
 Numbers against synthetic ground truth changed meaning today: the synthetic
 clip is now filmed through a physical camera. See *Changed* below and
@@ -223,7 +223,7 @@ clip is now filmed through a physical camera. See *Changed* below and
     on that clip a phantom.
 - `run_report.py --out-dir` crashed for a directory outside the repo.
 
-## [2.0.0] — 2026-09-22 (not yet pushed)
+## [2.0.0] — 2026-09-22
 
 Compared against `a2a662a` ("Update README.md", 2024-05-19), the last commit
 on GitHub. The 16 commits since then add about 10,000 lines across 35 files.

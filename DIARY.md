@@ -10,7 +10,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 🧭 Where the project stands
 
-*Last updated: **26 Sep 2026**, 17:30*
+*Last updated: **26 Sep 2026**, 17:45*
 
 | Area | Status | Notes |
 |---|:---:|---|
@@ -24,7 +24,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Collisions | ⚠️ | 4 of 6 on synthetic, 3 false |
 | Ball speeds | ✅ | 2.7% median error (4.9% screen-recorded) |
 | Tests | ✅ | 131 pass |
-| On GitHub | ⏳ | 22–26 Sep work unpushed: GitHub is blocked here |
+| On GitHub | ✅ | Everything to 26 Sep pushed (`0fe9fc9`) |
 
 **Key numbers**: synthetic break (`reports/run-log.json`, 26 Sep 17:21)
 
@@ -134,7 +134,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 
 ## 📅 26 Sep 2026: Loose ends, then an app
 
-*Work computer, scratch venv. The machine slept 05:17–11:45 and 13:11–16:46. Nothing committed.*
+*Work computer, scratch venv. The machine slept 05:17–11:45 and 13:11–16:46. Committed and pushed at the end.*
 
 ### State at the end of the day
 
@@ -146,7 +146,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | ✅ Tests | 131 pass |
 | ⚠️ Open | `albin_fedor`'s 5-ball pot missed · real clips' source rate uncertain · grey cloth needs corners · corner camera 0.57 |
 | ✅ Measured | `run_report.py` 17:21, `robustness.py` 17:24; `results/` rewritten; README at these numbers |
-| ⏳ Not pushed | GitHub blocked here |
+| ✅ On GitHub | 22–26 Sep pushed (`0fe9fc9`) |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
 |---|---|---|---|
@@ -167,6 +167,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 15 | Grey + corners 0.79 was a one-off | Re-run with the true corners placed | ✅ 0.79 |
 | 16 | App opened empty; README screenshot missing | 3 sample clips tracked in the app; captured over CDP (❌ headless `--screenshot`: video stuck on frame 0, or blank) | `docs/images/app_results.png` |
 | 17 | README at 23 Sep numbers, "88 tests"; `default.yaml` still 6 in | README accuracy + other footage + limitations; `UPGRADE_NOTES.md` §1; `dump-config` | Docs match the 17:21 run |
+| 18 | 22–26 Sep work only on this laptop | 23 + 26 Sep as one commit, `.idea/` left out; push worked (GitHub reachable after all) | 17 commits on GitHub |
 
 ---
 
