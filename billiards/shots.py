@@ -14,13 +14,23 @@ threshold that is not already in the config.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 
 from .config import Config
 from .events import Event, EventType
 from .track import Track, TrackState
+
+
+def ball_name(label: str) -> str:
+    """``"3"`` -> ``"the 3"``, ``"CUE"`` -> ``"the cue ball"``; a tracker id
+    (``"#5"``) is left as it is, since it is not a ball's name."""
+    if label == "CUE":
+        return "the cue ball"
+    if label.isdigit():
+        return f"the {label}"
+    return label
 
 
 @dataclass
@@ -38,6 +48,10 @@ class Shot:
     #: The first ball the opener touched, which is what "hit the 4 first" means.
     first_contact_track_id: Optional[int] = None
     first_contact_label: Optional[str] = None
+    #: When that contact happened.  Contacts found from the balls' paths arrive
+    #: a couple of frames late, so the first one *reported* is not necessarily
+    #: the first one that *happened*; the earliest frame wins.
+    first_contact_frame: Optional[int] = None
 
     collisions: int = 0
     cushions: int = 0
@@ -53,18 +67,22 @@ class Shot:
         return self.end_t_s - self.start_t_s
 
     def describe(self) -> str:
-        """One human-readable line."""
+        """One human-readable line, the way a commentator would put it:
+        ``shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2``."""
         parts = [f"shot {self.index}: {self.opener_label} struck"]
         if self.first_contact_label:
-            parts.append(f"hit {self.first_contact_label} first")
+            parts.append(f"hit {ball_name(self.first_contact_label)} first")
         if self.cushions:
             parts.append(f"{self.cushions} cushion{'s' if self.cushions != 1 else ''}")
         if self.collisions > 1:
             parts.append(f"{self.collisions} contacts")
-        if self.potted:
-            parts.append("potted " + ", ".join(self.potted))
-        else:
+        balls = [p for p in self.potted if p != "CUE"]
+        if balls:
+            parts.append("potted " + ", ".join(ball_name(p) for p in balls))
+        elif "CUE" not in self.potted:
             parts.append("nothing potted")
+        if "CUE" in self.potted:
+            parts.append("scratch (cue ball potted)")
         if self.duration_s is not None:
             parts.append(f"{self.duration_s:.1f}s")
         return " -- ".join(parts)
@@ -103,6 +121,8 @@ class ShotSegmenter:
         #: Balls must be at rest this long before a shot is considered over,
         #: so a ball creeping to a stop does not end it early.
         self._settle_frames = max(3, int(round(0.4 * self.fps)))
+        #: Display label of any track id, dead or alive; set by the pipeline.
+        self.label_of: Callable[[int], str] = lambda tid: f"#{tid}"
 
     # -- per frame ---------------------------------------------------------
 
@@ -115,6 +135,17 @@ class ShotSegmenter:
         moving = [t for t in confirmed if t.speed > threshold]
 
         completed: Optional[Shot] = None
+
+        # Events found from the balls' paths, and pots, which wait to see
+        # whether the ball comes back, arrive after the frame they happened
+        # on -- sometimes after their shot has closed.  They belong to the shot
+        # they happened in.
+        late = [e for e in events if self._is_late(e)]
+        for e in late:
+            shot = self._shot_at(e.frame)
+            if shot is not None:
+                self._count(shot, e, {})
+        events = [e for e in events if e not in late]
 
         if self._current is None:
             starters = [e for e in events if e.type is EventType.BALL_STRUCK]
@@ -183,26 +214,41 @@ class ShotSegmenter:
 
         by_id = {t.track_id: t for t in confirmed}
         for e in events:
-            if e.type is EventType.COLLISION:
-                shot.collisions += 1
-                if shot.first_contact_track_id is None and shot.opener_track_id in e.track_ids:
-                    other = next(
-                        (i for i in e.track_ids if i != shot.opener_track_id), None
-                    )
-                    if other is not None:
-                        shot.first_contact_track_id = other
-                        target = by_id.get(other)
-                        shot.first_contact_label = (
-                            target.label if target is not None else f"#{other}"
-                        )
-            elif e.type is EventType.CUSHION:
-                shot.cushions += 1
-            elif e.type is EventType.POT:
-                for tid in e.track_ids:
-                    target = by_id.get(tid)
-                    shot.potted.append(
-                        target.label if target is not None else f"#{tid}"
-                    )
+            self._count(shot, e, by_id)
+
+    def _label(self, tid: int, by_id: Dict[int, Track]) -> str:
+        target = by_id.get(tid)
+        return target.label if target is not None else self.label_of(tid)
+
+    def _count(self, shot: Shot, e: Event, by_id: Dict[int, Track]) -> None:
+        if e.type is EventType.COLLISION:
+            shot.collisions += 1
+            earlier = shot.first_contact_frame is None or e.frame < shot.first_contact_frame
+            if earlier and shot.opener_track_id in e.track_ids:
+                other = next((i for i in e.track_ids if i != shot.opener_track_id), None)
+                if other is not None:
+                    shot.first_contact_frame = e.frame
+                    shot.first_contact_track_id = other
+                    shot.first_contact_label = self._label(other, by_id)
+        elif e.type is EventType.CUSHION:
+            shot.cushions += 1
+        elif e.type is EventType.POT:
+            for tid in e.track_ids:
+                shot.potted.append(self._label(tid, by_id))
+
+    def _is_late(self, e: Event) -> bool:
+        """Does this event belong to a shot other than the one being played?"""
+        if e.type is EventType.BALL_STRUCK:
+            return False
+        if self._current is not None:
+            return e.frame < self._current.start_frame
+        return bool(self.shots) and e.frame <= (self.shots[-1].end_frame or 0)
+
+    def _shot_at(self, frame: int) -> Optional[Shot]:
+        for shot in reversed(self.shots + ([self._current] if self._current else [])):
+            if shot.start_frame <= frame and (shot.end_frame is None or frame <= shot.end_frame):
+                return shot
+        return None
 
     # -- results -----------------------------------------------------------
 

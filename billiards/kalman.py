@@ -19,7 +19,7 @@ inches/second.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -29,6 +29,11 @@ import numpy as np
 #: chi-squared with 2 degrees of freedom, so 9 is roughly the 99th percentile --
 #: it fires on real events, not on jitter.
 _MANOEUVRE_NIS = 9.0
+
+#: The adaptive gain below which the model counts as having predicted the
+#: last measurement: a normalised innovation under about 4.5, against 2 for a
+#: model that is exactly right.
+_SETTLED_GAIN = 1.5
 
 
 class BallKalman:
@@ -85,6 +90,16 @@ class BallKalman:
     @property
     def position_covariance(self) -> np.ndarray:
         return self.P[:2, :2].copy()
+
+    @property
+    def settled(self) -> bool:
+        """Did the model see the last measurement coming?
+
+        False for a frame or two after a surprise -- a collision, a cushion, a
+        ball just struck -- while the velocity estimate is still catching up
+        with what the ball is actually doing.
+        """
+        return self._q_gain < _SETTLED_GAIN
 
     # -- model -------------------------------------------------------------
 
@@ -157,6 +172,25 @@ class BallKalman:
         """Predicted position without mutating the filter."""
         dt = float(max(dt, 1e-6))
         return (self._transition(dt) @ self.x)[:2]
+
+    def rescale_time(self, factor: float) -> None:
+        """Re-express the velocity in a clock running ``factor`` times faster.
+
+        Used when the scene clock's rate estimate changes: the velocity was
+        learned from intervals timed at the old rate, so it is off by exactly
+        their ratio, and the filter would otherwise take several frames to
+        notice -- frames in which every step reads long.
+        """
+        f = float(factor)
+        scale = np.array([1.0, 1.0, f, f])
+        self.x = self.x * scale
+        self.P = self.P * np.outer(scale, scale)
+
+    def peek_many(self, dts: Sequence[float]) -> np.ndarray:
+        """``peek`` for several intervals at once: an (n, 2) array."""
+        dt = np.maximum(np.asarray(dts, dtype=np.float64), 1e-6)
+        travel = self.tau * (1.0 - np.exp(-dt / self.tau))
+        return self.x[None, :2] + travel[:, None] * self.x[None, 2:4]
 
     def update(self, measurement: Tuple[float, float]) -> None:
         z = np.asarray(measurement, dtype=np.float64).reshape(2)

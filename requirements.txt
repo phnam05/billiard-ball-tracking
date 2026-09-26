@@ -7,3 +7,5 @@ opencv-python>=4.8
 #   pyyaml  - read/write YAML config files (JSON works without it)
 scipy>=1.10
 pyyaml>=6.0
+#   imageio-ffmpeg - lets `billiards app` write videos a browser plays (H.264)
+imageio-ffmpeg>=0.4

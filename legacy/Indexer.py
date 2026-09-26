@@ -1,3 +1,14 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jul 12 21:33:56 2015
+
+@author: Stuart Grieve
+
+(Originally from Stuart Grieve's "PoolTable" project, 2015.  This author
+header was removed when the file was adapted for v1 in May 2024 and has been
+restored; see legacy/README.md.)
+"""
+
 def get_index_of_min(Data_List):
 
     import numpy as np

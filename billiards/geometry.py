@@ -288,6 +288,54 @@ def focal_lengths_for_homography(
     return float(f2_a), float(f2_b)
 
 
+def raised_plane_homography(
+    table_to_image: np.ndarray,
+    table_corners: np.ndarray,
+    image_size: Tuple[int, int],
+    height_in: float,
+) -> Optional[Tuple[np.ndarray, float, np.ndarray]]:
+    """The homography of the plane ``height_in`` above the table, towards the camera.
+
+    ``table_to_image`` maps table inches to image pixels for the cloth plane.
+    The camera is recovered from it -- principal point at the image centre,
+    focal length from the equal-norm constraint (see
+    ``focal_lengths_for_homography``), rotation orthonormalised -- and the plane
+    is moved along its normal.  The cloth-plane mapping itself is kept exactly;
+    only the height is added, so where nothing is raised nothing changes.
+
+    Returns ``(raised table_to_image, focal length px, camera position in)``,
+    or None when the focal length is not recoverable (a near-overhead view).
+    """
+    principal = (image_size[0] / 2.0, image_size[1] / 2.0)
+    image_corners = cv2.perspectiveTransform(
+        np.asarray(table_corners, dtype=np.float64).reshape(-1, 1, 2), table_to_image
+    ).reshape(-1, 2)
+    _, f2 = focal_lengths_for_homography(image_corners, table_corners, principal)
+    if not np.isfinite(f2) or f2 <= 0:
+        return None
+    f = float(np.sqrt(f2))
+    diag = float(np.hypot(*image_size))
+    if not (0.25 * diag <= f <= 25.0 * diag):
+        return None
+
+    K = np.array([[f, 0.0, principal[0]], [0.0, f, principal[1]], [0.0, 0.0, 1.0]])
+    M = np.linalg.inv(K) @ (table_to_image / table_to_image[2, 2])
+    M = M / (0.5 * (np.linalg.norm(M[:, 0]) + np.linalg.norm(M[:, 1])))
+    # The table must be in front of the camera.
+    middle = np.append(np.asarray(table_corners, dtype=np.float64).mean(axis=0), 1.0)
+    if (M @ middle)[2] < 0:
+        M = -M
+    u, _, vt = np.linalg.svd(np.column_stack([M[:, 0], M[:, 1], np.cross(M[:, 0], M[:, 1])]))
+    rotation = u @ vt
+    normal = rotation[:, 2]
+    centre = -rotation.T @ M[:, 2]
+    # Which side of the cloth the camera is on is which way "up" is.
+    up = 1.0 if centre[2] > 0 else -1.0
+    raised = M.copy()
+    raised[:, 2] = M[:, 2] + up * float(height_in) * normal
+    return K @ raised, f, centre * np.array([1.0, 1.0, up])
+
+
 @dataclass
 class TableModel:
     """A calibrated table: image corners plus the image<->table homography."""
@@ -301,13 +349,64 @@ class TableModel:
     #: principal point when deciding which way round the table is.
     image_size: Optional[Tuple[int, int]] = None
 
+    #: Correct ball positions for the height of the ball's centre above the
+    #: cloth (see ``ball_image_to_table``).  Off, every ball is placed as if it
+    #: were a disc painted on the cloth.
+    ball_parallax: bool = True
+
+    #: The outline of the cloth these corners were refined from, if they were
+    #: moved in to the cushion noses (``table.refine_to_cushion_noses``).  A
+    #: new outline is compared with this, not with the corners, to decide
+    #: whether the camera moved.
+    outline_image: Optional[np.ndarray] = None
+
     def __post_init__(self) -> None:
         self.corners_image = np.asarray(self.corners_image, dtype=np.float64).reshape(4, 2)
+        if self.outline_image is not None:
+            self.outline_image = np.asarray(self.outline_image, dtype=np.float64).reshape(4, 2)
         dst = self._table_corner_targets()
         self.H = cv2.getPerspectiveTransform(
             self.corners_image.astype(np.float32), dst.astype(np.float32)
         )
         self.H_inv = np.linalg.inv(self.H)
+        self.camera = self._recover_camera(dst) if self.ball_parallax else None
+        if self.camera is not None:
+            self.H_ball_inv = self.camera["ball_plane"]  # table (x, y) -> image
+            self.H_ball = np.linalg.inv(self.H_ball_inv)
+        else:
+            self.H_ball, self.H_ball_inv = self.H, self.H_inv
+
+    # -- camera ------------------------------------------------------------
+
+    def _recover_camera(self, dst: np.ndarray) -> Optional[dict]:
+        """The camera that filmed the table, from the table's own homography.
+
+        A ball is not a disc painted on the cloth: its centre is a ball radius
+        above it.  What the detector finds in the image is the ball's
+        silhouette, whose centre is the image of that raised point, and the
+        cloth-plane homography maps it to where the camera's line of sight
+        through it *meets the cloth* -- further from the camera than the ball
+        really is, by the ball radius over the tangent of the viewing angle.
+        On the sample broadcasts that is 2.4 in at the near rail and 4.0 in at
+        the far one.  It made a ball bouncing off the near cushion appear to
+        turn round 2 in short of it, and a ball at the far cushion appear to be
+        *past* it, outside the region searched for balls, where it could not be
+        seen at all.
+
+        Undoing that needs the camera.  The rotation columns of a plane
+        homography are orthonormal, which gives the focal length (the same
+        constraint that decides the table's orientation) and from it the full
+        pose; the ball-centre plane is the cloth plane moved a radius towards
+        the camera.  Returns None where the focal length is not recoverable --
+        a view close to overhead, where parallax is small anyway.
+        """
+        if self.image_size is None:
+            return None
+        found = raised_plane_homography(self.H_inv, dst, self.image_size, self.ball_radius_in)
+        if found is None:
+            return None
+        ball_plane, f, position = found
+        return {"focal_px": f, "position_in": position.tolist(), "ball_plane": ball_plane}
 
     # -- orientation -------------------------------------------------------
 
@@ -392,6 +491,24 @@ class TableModel:
             return np.empty((0, 2), dtype=np.float64)
         out = cv2.perspectiveTransform(pts, self.H_inv)
         return out.reshape(-1, 2)
+
+    def ball_image_to_table(self, pts: Sequence[Point] | np.ndarray) -> np.ndarray:
+        """Where on the cloth a ball is, from where its centre is in the image.
+
+        Use this, not ``image_to_table``, for anything that is a ball: see
+        ``_recover_camera``.  Identical to it when the camera is unknown.
+        """
+        pts = np.asarray(pts, dtype=np.float64).reshape(-1, 1, 2)
+        if pts.size == 0:
+            return np.empty((0, 2), dtype=np.float64)
+        return cv2.perspectiveTransform(pts, self.H_ball).reshape(-1, 2)
+
+    def ball_table_to_image(self, pts: Sequence[Point] | np.ndarray) -> np.ndarray:
+        """Where in the image the centre of a ball resting at ``pts`` appears."""
+        pts = np.asarray(pts, dtype=np.float64).reshape(-1, 1, 2)
+        if pts.size == 0:
+            return np.empty((0, 2), dtype=np.float64)
+        return cv2.perspectiveTransform(pts, self.H_ball_inv).reshape(-1, 2)
 
     # -- perspective-aware scale ------------------------------------------
 
@@ -534,12 +651,32 @@ class TableModel:
     def bed_polygon_image(self, margin_in: float = 0.0) -> np.ndarray:
         return self.table_to_image(self.bed_polygon_table(margin_in))
 
-    def bed_mask(self, shape: Tuple[int, int], margin_in: float = 0.0) -> np.ndarray:
-        """Binary mask (uint8 0/255) of the playing surface in image space."""
+    def bed_mask(
+        self,
+        shape: Tuple[int, int],
+        margin_in: float = 0.0,
+        raised_margin_in: Optional[float] = None,
+    ) -> np.ndarray:
+        """Binary mask (uint8 0/255) of the playing surface in image space.
+
+        With ``raised_margin_in``, also where a ball resting on the bed can
+        *appear*: the bed seen at the height of a ball's centre, which on the
+        far side of the table reaches past the cloth's own far edge -- a ball
+        against the far cushion is seen against the cushion's face.  Without
+        it, such a ball fell outside the region searched and could not be
+        detected at all, which is why a bounce off the far rail went unseen.
+        At a margin of 0 that extension ends exactly at the nose, where a ball
+        touching the cushion ends, so it takes in the cushion's cloth face but
+        not the top of the cushion behind it.
+        """
         h, w = shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
         poly = self.bed_polygon_image(margin_in).astype(np.int32)
         cv2.fillConvexPoly(mask, poly, 255)
+        if raised_margin_in is not None and self.camera is not None:
+            raised = self.ball_table_to_image(self.bed_polygon_table(raised_margin_in))
+            if np.all(np.isfinite(raised)):
+                cv2.fillConvexPoly(mask, raised.astype(np.int32), 255)
         return mask
 
     def contains(self, table_pt: Point, margin_in: float = 0.0) -> bool:
@@ -596,9 +733,15 @@ class TableModel:
             np.max(np.linalg.norm(self.corners_image - other.corners_image, axis=1))
         )
 
+    @property
+    def reference_outline(self) -> np.ndarray:
+        """The cloth outline this table was fitted from (see ``outline_image``)."""
+        return self.corners_image if self.outline_image is None else self.outline_image
+
     def to_dict(self) -> dict:
         return {
             "corners_image": self.corners_image.tolist(),
+            "outline_image": self.reference_outline.tolist(),
             "length_in": self.length_in,
             "width_in": self.width_in,
             "ball_diameter_in": self.ball_diameter_in,

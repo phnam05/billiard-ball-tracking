@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import cv2
 import numpy as np
 
+from .clock import SourceClock
 from .config import Config
 from .detect import BallDetector, Detection
 from .events import Event, EventDetector, EventType
@@ -32,7 +33,7 @@ from .track import MultiObjectTracker, Track, TrackState
 from .video import (
     TrackCsvWriter,
     VideoInfo,
-    VideoSink,
+    open_sink,
     probe,
     read_frames,
     sample_frames,
@@ -109,6 +110,20 @@ class TrackingPipeline:
         self._repeat_run = 0
         self.frames_repeated = 0
 
+        #: The scene's clock, which on a screen-recorded broadcast is not the
+        #: file's.  A property of the file, so it survives recalibration.
+        tcfg = cfg.table
+        self.clock = SourceClock(
+            self.fps,
+            table.ball_radius_in,
+            enabled=tcfg.source_clock,
+            min_moving_repeats=tcfg.source_clock_min_moving_repeats,
+            max_source_frames=tcfg.source_clock_max_skip,
+        )
+        #: A ball this fast changes the picture on every frame, so a repeat
+        #: while one is rolling means the file repeats frames of the scene.
+        self._clock_moving_speed = 5.0 * cfg.tracker.stationary_speed_in_s
+
         #: Run-level totals.  The tracker and event detector are rebuilt from
         #: scratch on a recalibration, so their own counters restart; these
         #: survive so the summary describes the whole clip rather than only the
@@ -116,6 +131,7 @@ class TrackingPipeline:
         self.all_events: List[Event] = []
         self._tracks_created_total = 0
         self.shots = ShotSegmenter(cfg, self.fps)
+        self.shots.label_of = self.label_of
 
     # -- per frame ---------------------------------------------------------
 
@@ -149,16 +165,14 @@ class TrackingPipeline:
         ):
             self._repeat_run += 1
             self.frames_repeated += 1
+            self.clock.note_repeat(self.tracker.any_moving(self._clock_moving_speed))
             return self._replay(frame, frame_index, t_s, annotate)
         self._repeat_run = 0
 
         # Only frames that are measured advance the clock, so the interval the
         # filters integrate over is the interval the picture actually changed
         # across -- however many copies of it the file happened to contain.
-        if self.last_frame_index is None:
-            dt = 1.0 / self.fps
-        else:
-            dt = max(1, frame_index - self.last_frame_index) / self.fps
+        slots = 1 if self.last_frame_index is None else max(1, frame_index - self.last_frame_index)
         self.last_frame_index = frame_index
 
         if (
@@ -170,24 +184,32 @@ class TrackingPipeline:
             cloth_mask = self.cloth.mask(hsv)
 
         detections = self.detector.detect(frame, hsv, cloth_mask)
+        min_step = self.cfg.table.source_clock_min_step_ball_radii * self.table.ball_radius_in
+        rate_before = self.clock.source_fps
+        dt, _ = self.clock.interval(
+            slots,
+            moving=self.tracker.any_moving(self._clock_moving_speed),
+            fit=lambda intervals: self.tracker.prediction_fit(
+                detections, intervals, min_step, spacing_s=1.0 / self.clock.source_fps
+            ),
+        )
         tracks = self.tracker.update(detections, dt, frame_index, t_s)
+        rate_after = self.clock.source_fps
+        if rate_after != rate_before:
+            # The velocities were learned in the old time base; see clock.py.
+            self.tracker.rescale_time(rate_after / rate_before)
         events = self.event_detector.step(tracks, frame_index, t_s, dt)
         self.all_events.extend(events)
 
-        # Pots are discovered when the tracker retires a track near a pocket.
-        while self._finished_seen < len(self.tracker.finished):
-            dead = self.tracker.finished[self._finished_seen]
-            self._finished_seen += 1
-            if dead.death_reason == "potted":
-                pot = self.event_detector.note_pot(dead, frame_index, t_s)
-                events.append(pot)
-                self.all_events.append(pot)
+        events.extend(self._confirmed_pots())
 
         # A collision is a discontinuity the motion model cannot represent, so
-        # tell the filters to stop trusting their velocity estimates.
+        # tell the filters to stop trusting their velocity estimates.  Only for
+        # a contact found on this frame: one found from the path is a couple of
+        # frames old, and the filters have long since followed the ball round.
         by_id = {t.track_id: t for t in tracks}
         for e in events:
-            if e.type is EventType.COLLISION:
+            if e.type is EventType.COLLISION and e.frame == frame_index:
                 for tid in e.track_ids:
                     if tid in by_id:
                         by_id[tid].kf.apply_impulse()
@@ -203,6 +225,43 @@ class TrackingPipeline:
         result = FrameResult(frame_index, t_s, detections, tracks, events, annotated)
         self._last_measured = result
         return result
+
+    def _confirmed_pots(self) -> List[Event]:
+        """Pots, once the tracker has given up waiting for the ball to reappear.
+
+        A track that dies near a pocket waits in the tracker's limbo first
+        (``TrackerConfig.revive_window_s``), because a ball in the jaws or
+        behind the player's hand dies there too and comes back.  The pot is
+        dated to the frame the ball vanished, not the frame it was confirmed.
+        """
+        pots: List[Event] = []
+        while self._finished_seen < len(self.tracker.finished):
+            dead = self.tracker.finished[self._finished_seen]
+            self._finished_seen += 1
+            if dead.death_reason == "potted" and dead.death_frame is not None:
+                pot = self.event_detector.note_pot(
+                    dead, dead.death_frame, dead.death_frame / self.fps
+                )
+                pots.append(pot)
+                self.all_events.append(pot)
+        return pots
+
+    def finish(self) -> List[Event]:
+        """End of clip: settle whatever is still waiting, and close the last shot."""
+        self.tracker.flush_limbo()
+        pots = self._confirmed_pots()
+        last = self.last_frame_index or 0
+        if pots:
+            self.shots.step([], pots, last, last / self.fps)
+        self.shots.finish(last, last / self.fps)
+        return pots
+
+    def label_of(self, track_id: int) -> str:
+        """A track's display label, alive or dead."""
+        for track in self.tracker.all_tracks():
+            if track.track_id == track_id:
+                return track.label
+        return f"#{track_id}"
 
     def _replay(
         self, frame: np.ndarray, frame_index: int, t_s: float, annotate: bool
@@ -435,6 +494,7 @@ class TrackingPipeline:
                 ball_diameter_in=self.cfg.table.ball_diameter_in,
                 has_pockets=self.table.has_pockets,
                 image_size=(frame.shape[1], frame.shape[0]),
+                ball_parallax=self.cfg.table.ball_parallax,
             )
             candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
 
@@ -451,6 +511,12 @@ class TrackingPipeline:
             self._recovery_quads.clear()
             return True
 
+        # Settle anything waiting in the old tracker's limbo before it goes.
+        self.tracker.flush_limbo()
+        late = self._confirmed_pots()
+        if late:
+            last = self.last_frame_index or 0
+            self.shots.step([], late, last, last / self.fps)
         self._tracks_created_total += self.tracker.tracks_created
         self.table = candidate
         self.detector = candidate_detector
@@ -465,7 +531,7 @@ class TrackingPipeline:
 
     def _same_table(self, quad: np.ndarray) -> bool:
         """Is this candidate the table we are already calibrated to?"""
-        drift = float(np.max(np.linalg.norm(self.table.corners_image - quad, axis=1)))
+        drift = float(np.max(np.linalg.norm(self.table.reference_outline - quad, axis=1)))
         short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
         return drift <= self.cfg.table.recalibration_tolerance * short_side_px
 
@@ -527,10 +593,13 @@ class TrackingPipeline:
             "recalibrations": self.recalibrations,
             "frames_view_lost": self.view_lost_frames,
             "frames_repeated": self.frames_repeated,
+            "clock": self.clock.to_dict(),
             "shots": len(self.shots.shots),
             "tracks_created": self._tracks_created_total + self.tracker.tracks_created,
             "tracks_alive": len(self.tracker.tracks),
             "tracks_finished": len(self.tracker.finished),
+            "tracks_revived": self.tracker.revived,
+            "ball_set": self.tracker.ball_set,
             "finished_reasons": _count(
                 [t.death_reason or "unknown" for t in self.tracker.finished]
             ),
@@ -562,6 +631,17 @@ class RunOptions:
     table_corners: Optional[Sequence[Sequence[float]]] = None
     progress_every: int = 60
     on_progress: Optional[Callable[[str], None]] = None
+    #: How the annotated video is encoded: a fourcc, ``"ffmpeg"`` (H.264 a
+    #: browser plays, see ``video.browser_codec``), or None for the suffix's.
+    writer: Optional[str] = None
+    #: Called after every frame with its result and the pipeline -- the app's
+    #: progress bar and live preview.  ``annotate`` draws the frames for it
+    #: even when no video is written.
+    on_frame: Optional[Callable[["FrameResult", "TrackingPipeline"], None]] = None
+    annotate: bool = False
+    #: Polled after every frame; True ends the run early, keeping what was
+    #: measured so far.
+    should_stop: Optional[Callable[[], bool]] = None
 
 
 def build_pipeline(
@@ -579,9 +659,17 @@ def build_pipeline(
     if opts.table_corners is not None:
         from .table import estimate_cloth_color, table_from_corners
 
-        cloth = estimate_cloth_color(frames, cfg)
         h, w = frames[0].shape[:2]
         table = table_from_corners(opts.table_corners, cfg, image_size=(w, h))
+        # The corners say where the bed is, so the cloth is measured there: in
+        # a wide shot the most common saturated colour in the frame can be the
+        # floor or a banner, which is often why the table was not found.
+        bed = table.bed_mask((h, w), margin_in=2.0 * table.ball_diameter_in)
+        inside = [cv2.bitwise_and(f, f, mask=bed) for f in frames]
+        try:
+            cloth = estimate_cloth_color(inside, cfg, neutral_ok=True)
+        except RuntimeError:
+            cloth = estimate_cloth_color(frames, cfg)
         result = CalibrationResult(
             table=table,
             cloth=cloth,
@@ -613,9 +701,10 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
         )
     )
 
-    sink = VideoSink(opts.output, info.fps) if opts.output else None
+    sink = open_sink(opts.output, info.fps, opts.writer) if opts.output else None
     csv_writer = TrackCsvWriter(opts.export_csv) if opts.export_csv else None
-    annotate = bool(opts.output or opts.show)
+    annotate = bool(opts.output or opts.show or opts.annotate)
+    stopped = False
 
     window = "Billiard Ball Tracker"
     debug_window = "Debug (foreground mask)"
@@ -634,6 +723,12 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
                 sink.write(result.annotated)
             if csv_writer is not None:
                 csv_writer.write_frame(idx, result.t_s, result.tracks)
+            if opts.on_frame is not None:
+                opts.on_frame(result, pipeline)
+            if opts.should_stop is not None and opts.should_stop():
+                log("stopped early")
+                stopped = True
+                break
 
             if opts.show and result.annotated is not None:
                 cv2.imshow(window, result.annotated)
@@ -663,10 +758,7 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
                     f"events={len(pipeline.all_events)}"
                 )
     finally:
-        pipeline.shots.finish(
-            pipeline.last_frame_index or 0,
-            (pipeline.last_frame_index or 0) / pipeline.fps,
-        )
+        pipeline.finish()
         if sink is not None:
             sink.close()
         if csv_writer is not None:
@@ -679,6 +771,7 @@ def run(cfg: Config, opts: RunOptions) -> Dict[str, Any]:
         "video": info.to_dict(),
         "calibration": calib.to_dict(),
         "frames_processed": frames_done,
+        "stopped_early": stopped,
         "wall_seconds": round(elapsed, 2),
         "processing_fps": round(frames_done / elapsed, 2) if elapsed > 0 else None,
         **pipeline.summary(),

@@ -24,7 +24,10 @@ dependencies = [
 [project.optional-dependencies]
 # Both are genuinely optional: an exact pure-NumPy assignment solver ships in
 # billiards/assignment.py, and JSON config works without PyYAML.
-full = ["scipy>=1.10", "pyyaml>=6.0"]
+full = ["scipy>=1.10", "pyyaml>=6.0", "imageio-ffmpeg>=0.4"]
+# The app (`billiards app`) needs nothing more; imageio-ffmpeg lets it write
+# its videos as H.264, which every browser plays.
+app = ["imageio-ffmpeg>=0.4"]
 dev = ["pytest>=7.0", "scipy>=1.10", "pyyaml>=6.0"]
 
 [project.scripts]
@@ -34,7 +37,10 @@ billiards = "billiards.cli:main"
 Homepage = "https://github.com/phnam05/billiard-ball-tracking"
 
 [tool.setuptools]
-packages = ["billiards"]
+packages = ["billiards", "billiards.app"]
+
+[tool.setuptools.package-data]
+"billiards.app" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

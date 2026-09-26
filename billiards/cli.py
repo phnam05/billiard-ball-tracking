@@ -88,6 +88,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     c.add_argument("--json", dest="export_json", help="write the report as JSON")
 
+    # -- app ---------------------------------------------------------------
+    a = sub.add_parser(
+        "app",
+        help="open the app in a web browser: footage library, set-up, runs, "
+             "results and live tracking",
+    )
+    a.add_argument(
+        "--workspace", default="billiards-workspace",
+        help="where the app keeps settings, runs and uploads",
+    )
+    a.add_argument(
+        "--folder", action="append", default=[],
+        help="list the videos in this folder too (repeatable); the current "
+             "folder is listed when none is given",
+    )
+    a.add_argument("--host", default="127.0.0.1",
+                   help="address to listen on; 0.0.0.0 makes it reachable from "
+                        "other computers on the network")
+    a.add_argument("--port", type=int, default=8765, help="0 picks any free port")
+    a.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    a.add_argument("--parallel", type=int, default=1,
+                   help="how many videos to track at once")
+
     # -- dump-config -------------------------------------------------------
     d = sub.add_parser("dump-config", help="write the default config to a file")
     d.add_argument("path", help="destination (.yaml or .json)")
@@ -254,6 +277,16 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_app(args: argparse.Namespace) -> int:
+    from .app import serve
+
+    folders = tuple(Path(f) for f in args.folder) or (Path.cwd(),)
+    return serve(
+        Path(args.workspace), host=args.host, port=args.port,
+        open_browser=not args.no_browser, folders=folders, parallel=args.parallel,
+    )
+
+
 def cmd_dump_config(args: argparse.Namespace) -> int:
     cfg = Config()
     if args.preset:
@@ -267,7 +300,7 @@ def cmd_dump_config(args: argparse.Namespace) -> int:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # Allow `billiards clip.mp4 -o out.mp4` as shorthand for the track command.
-    known = {"track", "calibrate", "dump-config"}
+    known = {"track", "calibrate", "dump-config", "app"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):
         argv.insert(0, "track")
 
@@ -284,6 +317,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return cmd_calibrate(args)
         if args.command == "dump-config":
             return cmd_dump_config(args)
+        if args.command == "app":
+            return cmd_app(args)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:
         print(f"[billiards] error: {exc}", file=sys.stderr)
         return 1

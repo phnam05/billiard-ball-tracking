@@ -49,50 +49,90 @@ class ColorSignature:
     #: while its high percentile is not; the cue ball is low in both.  Without
     #: this, every stripe is classified as the cue ball.
     chroma_high: float = 0.0
+    #: The ball's own colour: the median of its *coloured* pixels only, out to
+    #: near the rim and with cloth-coloured pixels left out.  ``lab`` is the
+    #: median of everything in the inner disc, which a white number circle, a
+    #: highlight or a stripe's caps pull towards grey; this is what says which
+    #: ball it is.  None until measured; ``lab`` stands in for it.
+    tint: Optional[np.ndarray] = None
+    #: Fraction of the ball that is *not* its own colour -- caps, number
+    #: circle, highlight.  A solid shows 0.07-0.21 of that on the sample clips
+    #: and a stripe 0.43-0.64, whether its caps are white or, as on the TV
+    #: ball set in those clips, black.  See ``billiards.balls``.
+    stripe: float = 0.0
+    #: Fraction of the ball that is black: nearly all of the 8, none of the
+    #: cue ball.  Measured like ``stripe``.  It is what tells those two apart
+    #: when the 8's white number circle faces the camera and fills the middle
+    #: of the ball, which otherwise reads as half a cue ball.
+    dark_fraction: float = 0.0
 
     @staticmethod
     def empty() -> "ColorSignature":
         return ColorSignature(lab=np.array([128.0, 128.0, 128.0]), white_fraction=0.0)
 
+    @property
+    def ball_colour(self) -> np.ndarray:
+        """The ball's own colour in Lab: ``tint`` if measured, else ``lab``."""
+        return self.lab if self.tint is None else self.tint
+
     def distance(self, other: "ColorSignature") -> float:
-        d_lab = self.lab.astype(np.float64) - other.lab.astype(np.float64)
-        colour = float(np.linalg.norm(_LAB_WEIGHTS * d_lab))
-        stripe = abs(self.white_fraction - other.white_fraction) * _STRIPE_WEIGHT
-        return colour + stripe
+        """How different two views of a ball look.  See ``colour_distance_matrix``."""
+        return float(colour_distance_matrix([self], [other])[0, 0])
 
     def blend(self, other: "ColorSignature", alpha: float) -> "ColorSignature":
         """Exponential moving average towards ``other``."""
+        if self.tint is None or other.tint is None:
+            tint = other.tint if self.tint is None else self.tint
+        else:
+            tint = (1.0 - alpha) * self.tint + alpha * other.tint
         return ColorSignature(
             lab=(1.0 - alpha) * self.lab + alpha * other.lab,
             white_fraction=(1.0 - alpha) * self.white_fraction
             + alpha * other.white_fraction,
             chroma=(1.0 - alpha) * self.chroma + alpha * other.chroma,
             chroma_high=(1.0 - alpha) * self.chroma_high + alpha * other.chroma_high,
+            tint=tint,
+            stripe=(1.0 - alpha) * self.stripe + alpha * other.stripe,
+            dark_fraction=(1.0 - alpha) * self.dark_fraction + alpha * other.dark_fraction,
         )
 
     @property
     def bgr(self) -> Tuple[int, int, int]:
-        """Approximate display colour for this signature."""
+        """Approximate display colour for this signature: the ball's own."""
         patch = np.zeros((1, 1, 3), dtype=np.uint8)
-        patch[0, 0] = np.clip(self.lab, 0, 255).astype(np.uint8)
+        patch[0, 0] = np.clip(self.ball_colour, 0, 255).astype(np.uint8)
         bgr = cv2.cvtColor(patch, cv2.COLOR_Lab2BGR)[0, 0]
         return (int(bgr[0]), int(bgr[1]), int(bgr[2]))
 
     @property
+    def lightness_chroma(self) -> Tuple[float, float]:
+        """Lightness and chroma of the ball's own colour (``ball_colour``)."""
+        c = self.ball_colour
+        return float(c[0]), float(np.hypot(float(c[1]) - 128.0, float(c[2]) - 128.0))
+
+    @property
     def cue_score(self) -> float:
-        """How much this looks like *the* cue ball: white, and colourless.
+        """How much this looks like *the* cue ball: bright, and colourless.
 
         A score rather than a test, because there is exactly one cue ball on the
         table and which ball it is, is a question about the whole set -- see
         MultiObjectTracker.assign_roles.  Judging each ball on its own gave two
         "cue balls" and four "8 balls" on a real clip.
+
+        Read from the ball's own colour, not from how much of it is white: a
+        solid's white number circle, facing the camera, made the yellow 1 read
+        almost half white, and it took the cue ball's role once the cue ball
+        was potted.  Measured, a cue ball's colour has a chroma of 5-13 and the
+        1's 46-48.
         """
-        return self.white_fraction - self.chroma_high / 100.0
+        L, C = self.lightness_chroma
+        return L / 255.0 - C / 25.0
 
     @property
     def eight_score(self) -> float:
-        """How much this looks like *the* 8 ball: dark, and colourless."""
-        return (1.0 - self.lab[0] / 255.0) - self.chroma_high / 100.0
+        """How much this looks like *the* 8 ball: black, and colourless."""
+        L, C = self.lightness_chroma
+        return max(self.dark_fraction, 1.0 - L / 128.0) - C / 25.0
 
     def classify(self) -> str:
         """Appearance class from this ball alone: ``cue``, ``stripe``,
@@ -114,9 +154,12 @@ class ColorSignature:
     def to_dict(self) -> dict:
         return {
             "lab": [round(float(x), 1) for x in self.lab],
+            "tint": [round(float(x), 1) for x in self.ball_colour],
             "white_fraction": round(float(self.white_fraction), 3),
             "chroma": round(float(self.chroma), 1),
             "chroma_high": round(float(self.chroma_high), 1),
+            "stripe": round(float(self.stripe), 3),
+            "dark_fraction": round(float(self.dark_fraction), 3),
             "type": self.classify(),
         }
 
@@ -124,7 +167,10 @@ class ColorSignature:
 #: Per-channel weights used by ColorSignature.distance.  Lightness counts for
 #: less because it is the channel that moves when a ball rolls through a shadow.
 _LAB_WEIGHTS = np.array([0.45, 1.0, 1.0])
-_STRIPE_WEIGHT = 26.0
+#: How much a difference in stripe score and in black fraction count, in the
+#: same units as the colour difference.
+_STRIPE_WEIGHT = 40.0
+_DARK_WEIGHT = 60.0
 
 
 def colour_distance_matrix(
@@ -132,23 +178,36 @@ def colour_distance_matrix(
 ) -> np.ndarray:
     """All pairwise colour distances at once.
 
-    Same metric as ``ColorSignature.distance``, but computed for a whole
-    track x detection grid in one pass.  Doing it one pair at a time meant a
-    Python-level double loop plus several small array allocations on every
-    frame, which was one of the larger costs in the tracker.
+    The ball's own colour (``tint``), plus how striped it is and how much of it
+    is black.  Until 23 Sep 2026 this compared the median of the inner disc,
+    plus the white fraction.  On camera-realistic balls that mistook 11-14% of
+    single-ball detections for another ball, nearly all for the cue ball: a
+    solid's white number circle, when it faces the camera, fills the middle of
+    the ball, so the median turns white.  One detection in twenty of a ball
+    then fell outside its *own* track's colour gate, which spawned a second
+    track, and the two traded the ball back and forth.  Measured against the
+    synthetic ground truth, this metric confuses 0.8-1.5%, and 95% of a ball's
+    detections sit within 12 of its average against 60 before.
+
+    Computed for a whole track x detection grid in one pass: one pair at a
+    time meant a Python-level double loop on every frame.
     """
     if not len(a) or not len(b):
         return np.zeros((len(a), len(b)), dtype=np.float64)
 
-    a_lab = np.array([s.lab for s in a], dtype=np.float64).reshape(len(a), 3)
-    b_lab = np.array([s.lab for s in b], dtype=np.float64).reshape(len(b), 3)
-    a_white = np.array([s.white_fraction for s in a], dtype=np.float64)
-    b_white = np.array([s.white_fraction for s in b], dtype=np.float64)
+    def columns(sigs: Sequence["ColorSignature"]):
+        lab = np.array([s.ball_colour for s in sigs], dtype=np.float64).reshape(len(sigs), 3)
+        stripe = np.array([s.stripe for s in sigs], dtype=np.float64)
+        dark = np.array([s.dark_fraction for s in sigs], dtype=np.float64)
+        return lab, stripe, dark
 
+    a_lab, a_stripe, a_dark = columns(a)
+    b_lab, b_stripe, b_dark = columns(b)
     delta = (a_lab[:, None, :] - b_lab[None, :, :]) * _LAB_WEIGHTS
     colour = np.sqrt(np.einsum("ijk,ijk->ij", delta, delta))
-    stripe = np.abs(a_white[:, None] - b_white[None, :]) * _STRIPE_WEIGHT
-    return colour + stripe
+    colour += np.abs(a_stripe[:, None] - b_stripe[None, :]) * _STRIPE_WEIGHT
+    colour += np.abs(a_dark[:, None] - b_dark[None, :]) * _DARK_WEIGHT
+    return colour
 
 
 def _unit_disc_offsets(count: int = 64) -> np.ndarray:
@@ -168,36 +227,111 @@ def _unit_disc_offsets(count: int = 64) -> np.ndarray:
 _DISC_OFFSETS = _unit_disc_offsets()
 
 
-def sample_signature(
-    lab_image: np.ndarray, centre: Tuple[float, float], radius_px: float
-) -> ColorSignature:
-    """Summarise the colour of the disc at ``centre``.
-
-    Only the inner 62% of the ball is sampled: the rim is contaminated by the
-    cloth behind it and by the dark occlusion shadow every ball casts.
-    """
+def _disc_pixels(
+    lab_image: np.ndarray, centre: Tuple[float, float], radius_px: float,
+    exclude: Optional[np.ndarray] = None,
+    neighbours: Optional[Sequence[Tuple[float, float]]] = None,
+) -> np.ndarray:
+    """Lab samples spread over the disc, minus any where ``exclude`` is set and
+    any nearer one of ``neighbours`` than this centre."""
     h, w = lab_image.shape[:2]
-    r = max(2.0, radius_px * 0.62)
-
-    pts = _DISC_OFFSETS * r + np.asarray(centre, dtype=np.float64)
+    pts = _DISC_OFFSETS * radius_px + np.asarray(centre, dtype=np.float64)
+    if neighbours:
+        own = np.linalg.norm(pts - np.asarray(centre, dtype=np.float64), axis=1)
+        keep = np.ones(len(pts), dtype=bool)
+        for other in neighbours:
+            keep &= np.linalg.norm(pts - np.asarray(other, dtype=np.float64), axis=1) >= own
+        pts = pts[keep]
     xs = np.rint(pts[:, 0]).astype(np.int32)
     ys = np.rint(pts[:, 1]).astype(np.int32)
     inside = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
-    if not np.any(inside):
+    xs, ys = xs[inside], ys[inside]
+    if exclude is not None and xs.size:
+        keep = exclude[ys, xs] == 0
+        xs, ys = xs[keep], ys[keep]
+    return lab_image[ys, xs].astype(np.float64)
+
+
+#: A pixel is part of a ball's own colour if its chroma is at least this
+#: fraction of the ball's high-percentile chroma (and at least the floor
+#: below).  Relative, because a dark blue ball under broadcast light has a
+#: chroma of 27 where a synthetic yellow one has 87.
+_TINT_CHROMA_RATIO = 0.5
+_TINT_CHROMA_FLOOR = 12.0
+#: ...and a ball has a colour at all only if at least this much of it is
+#: coloured.  A stripe's band is about half of it; the 8 and the cue ball have
+#: none.
+_MIN_COLOURED_FRACTION = 0.25
+#: A pixel this far from the ball's own colour (weighted Lab, as in
+#: ``ColorSignature.distance``) is cap, number circle or highlight.
+_OFF_TINT_DISTANCE = 30.0
+#: Black, for ``dark_fraction``: darker than any lit ball colour (the 2-ball,
+#: the darkest, has lightness 66 on the sample clips) and colourless.
+_DARK_LIGHTNESS = 58.0
+_DARK_CHROMA = 16.0
+
+#: A clump of up to this many balls is split cleanly enough to learn each
+#: ball's colour from: see ``Detection.colour_ok``.
+_CLEAN_CLUSTER_SIZE = 3
+
+
+def sample_signature(
+    lab_image: np.ndarray,
+    centre: Tuple[float, float],
+    radius_px: float,
+    cloth_mask: Optional[np.ndarray] = None,
+    neighbours: Optional[Sequence[Tuple[float, float]]] = None,
+) -> ColorSignature:
+    """Summarise the colour of the disc at ``centre``.
+
+    Two samplings.  The identity the tracker matches on uses only the inner 62%
+    of the ball: the rim is contaminated by the cloth behind it and by the
+    dark occlusion shadow every ball casts.  The ball's own colour and how
+    striped it is are measured out to 0.9 of the radius instead, because that
+    is where a stripe's caps are when its band faces the camera -- with
+    cloth-coloured pixels dropped, when the cloth mask is given, so that grey
+    cloth at the rim is not mistaken for a cap -- and, for a ball split out of
+    a cluster, with the pixels nearer one of its ``neighbours`` dropped too,
+    so that the ball touching it is not mistaken for a stripe's cap either.
+    """
+    r = max(2.0, radius_px * 0.62)
+    pixels = _disc_pixels(lab_image, centre, r)
+    if pixels.shape[0] == 0:
         return ColorSignature.empty()
 
-    pixels = lab_image[ys[inside], xs[inside]].astype(np.float64)
     lab = np.median(pixels, axis=0)
     chroma = np.linalg.norm(pixels[:, 1:] - 128.0, axis=1)
     white = np.count_nonzero((pixels[:, 0] > 165.0) & (chroma < 26.0)) / float(
         pixels.shape[0]
     )
-    return ColorSignature(
+    signature = ColorSignature(
         lab=lab,
         white_fraction=float(white),
         chroma=float(np.median(chroma)),
         chroma_high=float(np.percentile(chroma, 85)),
     )
+
+    outer = _disc_pixels(lab_image, centre, max(2.0, radius_px * 0.9), cloth_mask, neighbours)
+    if outer.shape[0] >= 8:
+        c = np.linalg.norm(outer[:, 1:] - 128.0, axis=1)
+        signature.dark_fraction = float(
+            np.count_nonzero((outer[:, 0] < _DARK_LIGHTNESS) & (c < _DARK_CHROMA))
+        ) / float(outer.shape[0])
+        floor = max(_TINT_CHROMA_FLOOR, _TINT_CHROMA_RATIO * float(np.percentile(c, 85)))
+        coloured = c >= floor
+        if np.count_nonzero(coloured) >= max(6, _MIN_COLOURED_FRACTION * outer.shape[0]):
+            tint = np.median(outer[coloured], axis=0)
+            off = np.linalg.norm((outer - tint) * _LAB_WEIGHTS, axis=1) > _OFF_TINT_DISTANCE
+            signature.tint = tint
+            signature.stripe = float(np.count_nonzero(off)) / float(outer.shape[0])
+        else:
+            # A colourless ball -- the cue ball, the 8.  A handful of stray
+            # coloured pixels at its rim is not its colour, and taking their
+            # median made the 8's "colour" jump by 80-130 from one frame to the
+            # next.  The median of the whole disc stays black on the 8 even
+            # with its number circle in view, and white on the cue ball.
+            signature.tint = np.median(outer, axis=0)
+    return signature
 
 
 #: Directions sampled around a candidate's rim.  Twenty-four is enough for the
@@ -315,6 +449,14 @@ class Detection:
     from_cluster: bool = False
     #: Median colour step across the rim -- see ``rim_contrast``.
     rim_contrast: float = 0.0
+    #: Whether this detection's colour can be learned from.  A ball on its
+    #: own, or one of a pair or three split apart: each of those is sampled
+    #: only on its own side of the line to its neighbour.  In a bigger clump
+    #: the balls hide each other, so its colours are not trusted.
+    colour_ok: bool = True
+    #: Seen partly past the bed's far edge, where only a ball already being
+    #: followed is looked for -- see ``DetectorConfig.search_raised_bed``.
+    in_raised_band: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -343,6 +485,12 @@ class BallDetector:
         self.cloth = cloth
         self._bed_mask: Optional[np.ndarray] = None
         self._bed_shape: Optional[Tuple[int, int]] = None
+        #: The current frame's cloth mask, so a ball's colour can be sampled
+        #: without the cloth showing round its rim.
+        self._cloth_mask: Optional[np.ndarray] = None
+        self._bed_interior: Optional[np.ndarray] = None
+        #: The bed without the raised band, when that is searched too.
+        self._plain_bed: Optional[np.ndarray] = None
         self.last_debug: dict = {}
 
     # -- masks -------------------------------------------------------------
@@ -360,7 +508,16 @@ class BallDetector:
             margin = (
                 self.cfg.table.bed_margin_ball_diameters * self.table.ball_diameter_in
             )
-            mask = self.table.bed_mask(shape, margin_in=margin)
+            # Not widened to where balls *appear* (``raised_margin_in``): on the
+            # sample broadcasts the calibrated far edge is the top of the far
+            # cushion's face, which is cloth too, so the widened band reached
+            # into the rail and the hands of a player leaning over it -- 30
+            # tracks for 7 balls on albin_fedor.  A ball against the far
+            # cushion therefore stays hard to see; see UPGRADE_NOTES.
+            plain = self.table.bed_mask(shape, margin_in=margin)
+            mask = plain
+            if self.cfg.detector.search_raised_bed:
+                mask = self.table.bed_mask(shape, margin_in=margin, raised_margin_in=margin)
 
             radius_in = (
                 self.cfg.detector.pocket_exclusion_ball_diameters
@@ -386,7 +543,11 @@ class BallDetector:
                         continue
                     cv2.fillPoly(mask, [poly.astype(np.int32)], 0)
             self._bed_mask = mask
+            self._plain_bed = cv2.bitwise_and(plain, mask) if plain is not mask else None
             self._bed_shape = shape[:2]
+            # The bed pulled in by a couple of pixels: a blob with any pixel
+            # outside this reaches the edge.  See ``_is_made_of_balls``.
+            self._bed_interior = cv2.erode(mask, np.ones((5, 5), np.uint8))
         return self._bed_mask
 
     def bed_cloth_coverage(self, cloth_mask: np.ndarray) -> float:
@@ -425,6 +586,14 @@ class BallDetector:
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_fill, k_fill)),
         )
 
+        # Not healed first.  Where a stripe's band meets its caps the blur can
+        # mix a colour inside the cloth's window -- a blue 10 on blue-grey cloth
+        # -- drawing a line of "cloth" across the ball that the opening below
+        # widens into two half-balls, each too small to count.  Closing such
+        # cracks before the opening fixed that on the synthetic clip, and also
+        # closed the gaps between a gloved player's fingers: on albin_fedor the
+        # hand then passed for a black ball next to the 8, and five false
+        # collisions followed.  See UPGRADE_NOTES.md.
         fg = cv2.bitwise_and(cv2.bitwise_not(cloth_mask), self.bed_mask(frame.shape))
 
         k_open = max(3, int(round(r_px * self.cfg.detector.open_radius_ball_radii)) | 1)
@@ -441,8 +610,11 @@ class BallDetector:
                cloth_mask: Optional[np.ndarray] = None) -> List[Detection]:
         if hsv is None:
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        if cloth_mask is None:
+            cloth_mask = self.cloth.mask(hsv)
         fg = self.foreground_mask(frame, hsv, cloth_mask)
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab)
+        self._cloth_mask = cloth_mask
 
         num, labels, stats, centroids = cv2.connectedComponentsWithStats(fg, 8)
         detections: List[Detection] = []
@@ -466,13 +638,17 @@ class BallDetector:
 
             if ratio >= self.cfg.detector.split_area_ratio:
                 centres = self._split_cluster(
-                    component, r_expected, offset=(x, y), colour=lab, area=int(area)
+                    component, r_expected, offset=(x, y), colour=lab, area=int(area),
+                    in_open=not self._touches_bed_edge(component, (x, y)),
                 )
                 if not centres:
                     rejected["not_balls"] += 1
                 for c in centres:
+                    others = [o for o in centres if o is not c]
                     det = self._make_detection(
-                        c, r_expected, ratio, 1.0, lab, from_cluster=True
+                        c, r_expected, ratio, 1.0, lab, from_cluster=True,
+                        neighbours=others,
+                        colour_ok=len(centres) <= _CLEAN_CLUSTER_SIZE,
                     )
                     if det is None:
                         rejected["rim"] += 1
@@ -498,6 +674,23 @@ class BallDetector:
                 continue
             detections.append(det)
 
+        if self._plain_bed is not None:
+            for det in detections:
+                det.in_raised_band = (
+                    self._outside_plain_bed(det) > self.cfg.detector.raised_band_outside_fraction
+                )
+            # Two balls cannot overlap.  One in the band on top of one on the
+            # bed is the bed ball's own top, run into the dark line under the
+            # cushion's nose -- a black 8 against the far rail split in two.
+            on_bed = [np.asarray(d.centre_image) for d in detections if not d.in_raised_band]
+            detections = [
+                d for d in detections
+                if not d.in_raised_band or all(
+                    float(np.linalg.norm(np.asarray(d.centre_image) - c)) >= 1.6 * d.radius_px
+                    for c in on_bed
+                )
+            ]
+
         if len(detections) > self.cfg.detector.max_detections:
             detections.sort(key=lambda d: abs(np.log(max(d.area_ratio, 1e-6))))
             detections = detections[: self.cfg.detector.max_detections]
@@ -512,9 +705,20 @@ class BallDetector:
 
     # -- helpers -----------------------------------------------------------
 
+    def _outside_plain_bed(self, det: "Detection") -> float:
+        """How much of a ball's disc lies past the bed, in the raised band."""
+        plain = self._plain_bed
+        if plain is None:
+            return 0.0
+        h, w = plain.shape[:2]
+        pts = det.radius_px * 0.8 * _unit_disc_offsets(16) + np.asarray(det.centre_image)
+        xs = np.clip(np.rint(pts[:, 0]).astype(int), 0, w - 1)
+        ys = np.clip(np.rint(pts[:, 1]).astype(int), 0, h - 1)
+        return float(np.mean(plain[ys, xs] == 0))
+
     def _table_point(self, centre: Tuple[float, float]) -> Optional[Tuple[float, float]]:
         """Where this image point sits on the bed, or None if it is off it."""
-        table_pt = self.table.image_to_table([centre])[0]
+        table_pt = self.table.ball_image_to_table([centre])[0]
         table_xy = (float(table_pt[0]), float(table_pt[1]))
         margin = -0.75 * self.table.ball_radius_in  # allow slight overhang
         if not self.table.contains(table_xy, margin):
@@ -529,13 +733,15 @@ class BallDetector:
         circularity: float,
         lab: np.ndarray,
         from_cluster: bool,
+        neighbours: Optional[Sequence[Tuple[float, float]]] = None,
+        colour_ok: bool = True,
     ) -> Optional[Detection]:
         table_xy = self._table_point(centre)
         if table_xy is None:
             return None
         # Radius recomputed at the refined centre: matters on wide-angle views.
         r = self.table.expected_ball_radius_px_table(table_xy)
-        sig = sample_signature(lab, centre, r)
+        sig = sample_signature(lab, centre, r, self._cloth_mask, neighbours)
 
         # ...and it has to *stop* being that colour one radius further out.
         # Everything above this line is happy with any ball-sized round thing;
@@ -553,7 +759,20 @@ class BallDetector:
             signature=sig,
             from_cluster=from_cluster,
             rim_contrast=rim,
+            colour_ok=colour_ok,
         )
+
+    def _touches_bed_edge(self, component: np.ndarray, offset: Tuple[int, int]) -> bool:
+        """Does this blob reach the edge of the region searched for balls?"""
+        inner = self._bed_interior
+        if inner is None:
+            return True
+        h, w = component.shape[:2]
+        x, y = offset
+        window = inner[y : y + h, x : x + w]
+        if window.shape != component.shape:
+            return True
+        return bool(np.any((component > 0) & (window == 0)))
 
     def _check_shape(self, component: np.ndarray) -> Tuple[bool, float]:
         contours, _ = cv2.findContours(
@@ -611,6 +830,7 @@ class BallDetector:
         offset: Tuple[int, int],
         colour: np.ndarray,
         area: int,
+        in_open: bool = False,
     ) -> List[Tuple[float, float]]:
         """Separate touching balls inside one blob.
 
@@ -684,7 +904,7 @@ class BallDetector:
         max_balls = max(1, int(np.ceil(area / (0.68 * np.pi * r_expected**2))))
         kept = kept[:max_balls]
 
-        if not self._is_made_of_balls(kept, dist, pad, r_expected, offset, colour):
+        if not self._is_made_of_balls(kept, dist, pad, r_expected, offset, colour, in_open):
             return []
         return kept
 
@@ -696,6 +916,7 @@ class BallDetector:
         r_expected: float,
         offset: Tuple[int, int],
         colour: np.ndarray,
+        in_open: bool = False,
     ) -> bool:
         """Is this blob a group of balls, or a hand?
 
@@ -750,6 +971,16 @@ class BallDetector:
             rim_contrast(colour, c, r_expected, sample_signature(colour, c, r_expected))
             for c in centres
         ]
+        # A blob out in the open, clear of the bed's edge, cannot be a hand: a
+        # hand, a forearm or a cue reaches the table from outside it, so its
+        # blob crosses the edge.  On the three sample clips every rejected blob
+        # of two or more candidates touched the edge but two, with rims of 6
+        # and 13, while a static rack of camera-realistic balls -- same-looking
+        # neighbours, no gap between them -- sits in the open with rims of
+        # 33-51.  Such a rack failed both tests above and went unseen until
+        # the break; the looser bar for a blob in the open finds it.
+        if in_open and len(centres) >= 2:
+            return float(np.median(rims)) >= cfg.cluster_open_rim_contrast_min
         return float(np.median(rims)) >= cfg.cluster_rim_contrast_min
 
     def _dt_peaks(

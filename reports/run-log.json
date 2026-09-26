@@ -55,7 +55,8 @@
             "max": 1.008,
             "samples": 3902
           },
-          "real_pots": 1
+          "real_pots": 2,
+          "detectable_pots": 1
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -85,7 +86,8 @@
             "max": 0.58,
             "samples": 2798
           },
-          "real_pots": 0
+          "real_pots": 0,
+          "detectable_pots": 0
         },
         "fedor_shot": {
           "balls_visible": 8,
@@ -118,7 +120,8 @@
             "max": 0.286,
             "samples": 3456
           },
-          "real_pots": 1
+          "real_pots": 1,
+          "detectable_pots": 1
         }
       },
       "open_issues": [
@@ -173,7 +176,8 @@
             "max": 0.441,
             "samples": 3825
           },
-          "real_pots": 1
+          "real_pots": 2,
+          "detectable_pots": 1
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -203,7 +207,8 @@
             "max": 0.366,
             "samples": 2703
           },
-          "real_pots": 0
+          "real_pots": 0,
+          "detectable_pots": 0
         },
         "fedor_shot": {
           "balls_visible": 8,
@@ -234,7 +239,8 @@
             "max": 0.328,
             "samples": 3378
           },
-          "real_pots": 1
+          "real_pots": 1,
+          "detectable_pots": 1
         }
       },
       "open_issues": [
@@ -260,7 +266,7 @@
       "clips": {
         "albin_fedor": {
           "balls_visible": 7,
-          "real_pots": 1,
+          "real_pots": 2,
           "frames": 751,
           "frames_repeated": 405,
           "frames_view_lost": 54,
@@ -290,7 +296,8 @@
             "mean": 0.009,
             "max": 0.441,
             "samples": 3825
-          }
+          },
+          "detectable_pots": 1
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -320,7 +327,8 @@
             "mean": 0.012,
             "max": 0.366,
             "samples": 2703
-          }
+          },
+          "detectable_pots": 0
         },
         "fedor_shot": {
           "balls_visible": 8,
@@ -351,7 +359,8 @@
             "mean": 0.005,
             "max": 0.328,
             "samples": 3378
-          }
+          },
+          "detectable_pots": 1
         }
       },
       "open_issues": [
@@ -383,7 +392,7 @@
             "results\\preview_albin_fedor.png"
           ],
           "balls_visible": 7,
-          "real_pots": 1,
+          "real_pots": 2,
           "frames": 751,
           "frames_repeated": 405,
           "frames_view_lost": 54,
@@ -413,7 +422,8 @@
             "mean": 0.009,
             "max": 0.441,
             "samples": 3825
-          }
+          },
+          "detectable_pots": 1
         },
         "fedor_jump": {
           "written": [
@@ -449,7 +459,8 @@
             "mean": 0.012,
             "max": 0.366,
             "samples": 2703
-          }
+          },
+          "detectable_pots": 0
         },
         "fedor_shot": {
           "written": [
@@ -486,7 +497,8 @@
             "mean": 0.005,
             "max": 0.328,
             "samples": 3378
-          }
+          },
+          "detectable_pots": 1
         }
       },
       "open_issues": [
@@ -518,7 +530,7 @@
             "results\\preview_albin_fedor.png"
           ],
           "balls_visible": 7,
-          "real_pots": 1,
+          "real_pots": 2,
           "frames": 751,
           "frames_repeated": 405,
           "frames_view_lost": 54,
@@ -548,7 +560,8 @@
             "mean": 0.009,
             "max": 0.441,
             "samples": 3825
-          }
+          },
+          "detectable_pots": 1
         },
         "fedor_jump": {
           "written": [
@@ -584,7 +597,8 @@
             "mean": 0.012,
             "max": 0.366,
             "samples": 2703
-          }
+          },
+          "detectable_pots": 0
         },
         "fedor_shot": {
           "written": [
@@ -621,7 +635,8 @@
             "mean": 0.005,
             "max": 0.328,
             "samples": 3378
-          }
+          },
+          "detectable_pots": 1
         }
       },
       "open_issues": [
@@ -638,6 +653,1130 @@
         "id_switches": 2,
         "position_error_in_median": 0.151
       }
+    },
+    {
+      "id": "2026-09-23T10:56:07+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "Reproduction on the work computer, no code changes: Python 3.14, OpenCV 5.0.0, NumPy 2.5.3, SciPy 1.18.1 (the project was last measured on the other computer). Checks that every number survives a newer stack.",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "frames": 751,
+          "frames_repeated": 405,
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 13,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #4 first -- 1 cushion -- 3 contacts -- nothing potted -- 2.1s",
+            "shot 2: #10 struck -- nothing potted -- 5.4s"
+          ],
+          "processing_fps": 26.71,
+          "tracks_reported": 10,
+          "short_tracks": [
+            12
+          ],
+          "peak_speed_in_s": 572.3,
+          "speed_jitter_in_s": {
+            "mean": 13.66,
+            "max": 438.1,
+            "samples": 191
+          },
+          "rest_jitter_in": {
+            "mean": 0.009,
+            "max": 0.441,
+            "samples": 3825
+          },
+          "detectable_pots": 1
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "frames": 375,
+          "frames_repeated": 213,
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3
+          },
+          "shots": [
+            "shot 1: CUE struck -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 20.44,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 180.2,
+          "speed_jitter_in_s": {
+            "mean": 4.85,
+            "max": 82.4,
+            "samples": 296
+          },
+          "rest_jitter_in": {
+            "mean": 0.012,
+            "max": 0.366,
+            "samples": 2703
+          },
+          "detectable_pots": 0
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #8 first -- potted #8 -- 10.2s"
+          ],
+          "processing_fps": 16.63,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 112.8,
+          "speed_jitter_in_s": {
+            "mean": 4.58,
+            "max": 63.1,
+            "samples": 252
+          },
+          "rest_jitter_in": {
+            "mean": 0.005,
+            "max": 0.328,
+            "samples": 3378
+          },
+          "detectable_pots": 1
+        }
+      },
+      "open_issues": [],
+      "ground_truth": {
+        "recall": 0.937,
+        "precision": 1.0,
+        "mota": 0.9358,
+        "id_switches": 2,
+        "position_error_in_median": 0.151
+      }
+    },
+    {
+      "id": "2026-09-23T11:29:59+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "Scene clock (billiards/clock.py). These clips are ~25-30 fps content screen-recorded at 37.5, and each new frame is one source frame later whatever the slot gap (a ball moves the same distance after a 1-slot gap as after a 2-slot one, median ratio 0.96 where the file's clock predicts 2.0); about one step in four to seven spans two source frames because the recorder missed one. The pipeline now asks the moving balls which it was -- predict 1, 2 or 3 source frames ahead, take the one the detections decisively agree with -- and estimates the source rate from the decisive frames only (counting ties was a feedback loop that read 33-55 fps). Also: albin_fedor ground truth corrected to 2 real pots / 1 detectable (the 5-ball drops into the far-left corner at frame 566; the 4 was knocked in from the jaws at ~155 and is untrackable). New: synthetic ground truth now also scores speed error and events, and a second synthetic clip is captured the broadcast way.",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 405,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 28.228,
+            "moving_repeats": 26,
+            "evidence_frames": 32,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 13,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 1,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #4 first -- 1 cushion -- 3 contacts -- nothing potted -- 2.1s",
+            "shot 2: #10 struck -- potted #3 -- 5.4s"
+          ],
+          "processing_fps": 29.82,
+          "tracks_reported": 10,
+          "short_tracks": [
+            12
+          ],
+          "peak_speed_in_s": 333.1,
+          "speed_jitter_in_s": {
+            "mean": 7.83,
+            "max": 198.9,
+            "samples": 176
+          },
+          "rest_jitter_in": {
+            "mean": 0.009,
+            "max": 0.441,
+            "samples": 3835
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 213,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 24.0,
+            "moving_repeats": 30,
+            "evidence_frames": 23,
+            "skipped_source_frames": 4
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3
+          },
+          "shots": [
+            "shot 1: CUE struck -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 29.35,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 144.4,
+          "speed_jitter_in_s": {
+            "mean": 3.63,
+            "max": 57.7,
+            "samples": 267
+          },
+          "rest_jitter_in": {
+            "mean": 0.013,
+            "max": 0.366,
+            "samples": 2698
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 26.666,
+            "moving_repeats": 66,
+            "evidence_frames": 77,
+            "skipped_source_frames": 17
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #8 first -- potted #8 -- 10.2s"
+          ],
+          "processing_fps": 27.3,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 109.9,
+          "speed_jitter_in_s": {
+            "mean": 2.21,
+            "max": 69.6,
+            "samples": 272
+          },
+          "rest_jitter_in": {
+            "mean": 0.005,
+            "max": 0.334,
+            "samples": 3384
+          }
+        }
+      },
+      "open_issues": [
+        "Cushion contacts: 2 of 23 found on the clean synthetic break, 2 of 21 on the retimed one; 0 of ~4 visible in fedor_shot. The detector only looks at CONFIRMED tracks on consecutive measured frames, so a ball that is unobserved while it bounces (rail margin, blur) is never tested.",
+        "Collisions: 2 of 13 found on the clean synthetic break; most true ones are inside the rack cascade at the break, but not all.",
+        "Source rate on short clips is known to about 10%: fedor_shot has a long decisive stretch that reads 29.7 fps; the other two clips have fewer decisive frames and read 24-28.",
+        "albin_fedor: cue ball renumbered 2 -> 10 at the pocket and labelled #10 until the CUE role catches up; 3 phantom tracks (cue shaft, hand)."
+      ],
+      "ground_truth": {
+        "recall": 0.937,
+        "precision": 1.0,
+        "mota": 0.9358,
+        "id_switches": 2,
+        "position_error_in_median": 0.151,
+        "speed_error_median_relative": 0.014,
+        "speed_error_p95_in_s": 6.25,
+        "events_found": {
+          "collision": "2/13 (+3 false)",
+          "cushion": "2/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.933,
+        "precision": 1.0,
+        "mota": 0.9315,
+        "id_switches": 3,
+        "position_error_in_median": 0.143,
+        "speed_error_median_relative": 0.0217,
+        "speed_error_p95_in_s": 10.55,
+        "events_found": {
+          "collision": "2/12 (+1 false)",
+          "cushion": "2/21 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 78,
+          "evidence_frames": 105,
+          "skipped_source_frames": 13
+        }
+      }
+    },
+    {
+      "id": "2026-09-23T13:16:04+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "Four changes, each measured against ground truth. (1) Ball parallax: a ball's centre is a radius above the cloth, and the cloth homography placed every ball 2.4 in (near rail) to 4.0 in (far rail) too far from the camera; the camera is now recovered from the table homography and balls are mapped through the plane at ball-centre height. Verified on fedor_shot: the near-rail bounce apex went from 2.1 in short of the cushion to 0.2 in. (2) The synthetic clip is now filmed by a physical pinhole camera behind an end rail (the one recovered from the sample broadcasts), with raised cushions, a venue backdrop, and per-ball visibility; scoring ignores balls less than half in view. Numbers are NOT comparable with earlier entries: the old synthetic view was not a realisable camera and drew balls as flat discs. On the new clip, without the parallax fix MOTA is -0.43. (3) Events from the balls' raw paths: cushions from motion toward a rail turning into motion away (with no other ball within reach), collisions from two paths turning a corner together; the old velocity-flip cushion detector is removed. Cushions found 5/55 -> 49/55 on the synthetic clips, 0 false; fedor_shot now reports its 4 cushions. (4) Track limbo: a track that dies waits 1.5 s and is revived if its ball reappears, so pots wait too -- the cue ball in albin_fedor's pocket jaws is no longer a phantom scratch and no longer becomes #10; roles are sticky through coasting and shadows.",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 405,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 28.228,
+            "moving_repeats": 25,
+            "evidence_frames": 32,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 3,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #4 first -- 1 cushion -- 3 contacts -- nothing potted -- 2.1s",
+            "shot 2: CUE struck -- 2 cushions -- potted #3 -- 5.4s"
+          ],
+          "processing_fps": 27.1,
+          "tracks_reported": 8,
+          "short_tracks": [
+            10
+          ],
+          "peak_speed_in_s": 327.6,
+          "speed_jitter_in_s": {
+            "mean": 6.98,
+            "max": 195.8,
+            "samples": 207
+          },
+          "rest_jitter_in": {
+            "mean": 0.009,
+            "max": 0.434,
+            "samples": 3842
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 213,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 24.0,
+            "moving_repeats": 27,
+            "evidence_frames": 21,
+            "skipped_source_frames": 4
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3,
+            "cushion": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 4 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 25.66,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 142.0,
+          "speed_jitter_in_s": {
+            "mean": 3.68,
+            "max": 56.7,
+            "samples": 253
+          },
+          "rest_jitter_in": {
+            "mean": 0.013,
+            "max": 0.36,
+            "samples": 2701
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 26.271,
+            "moving_repeats": 66,
+            "evidence_frames": 78,
+            "skipped_source_frames": 16
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit #8 first -- 4 cushions -- potted #8 -- 10.2s"
+          ],
+          "processing_fps": 26.54,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 108.1,
+          "speed_jitter_in_s": {
+            "mean": 2.22,
+            "max": 68.5,
+            "samples": 267
+          },
+          "rest_jitter_in": {
+            "mean": 0.005,
+            "max": 0.334,
+            "samples": 3391
+          }
+        }
+      },
+      "open_issues": [
+        "Calibrated outline is the outline of the cloth, which includes the far cushion's face and the long cushions' tops: on those rails the nose is up to ~4 in inside the fitted edge (fedor_shot bounces turn round 3.4 in and 4.9 in off the fitted long and far rails). Cushion detection tolerates it; positions near those rails and pocket positions carry it. Fit the nose lines instead.",
+        "A ball against the far cushion appears past the far bed edge (parallax) and is outside the region searched. Widening the region to where balls appear worked on the synthetic clip but put 30 tracks on albin_fedor, because the real far edge is the top of the cushion face and the band reached the rail and the player's hands.",
+        "Synthetic retimed clip: one phantom pot, a ball bouncing off a long rail right beside the side pocket (bouncing and heading into the pocket look alike there).",
+        "Source rate on short clips is known to about 10% (24-30 fps across the sample clips).",
+        "Collisions: 10 of 15 visible contacts found on the synthetic clips, with 4 false; the break cascade inside a static rack is not observable and is not scored."
+      ],
+      "ground_truth": {
+        "recall": 0.9275,
+        "precision": 1.0,
+        "mota": 0.9229,
+        "id_switches": 7,
+        "position_error_in_median": 0.214,
+        "speed_error_median_relative": 0.0205,
+        "speed_error_p95_in_s": 9.57,
+        "events_found": {
+          "collision": "5/6 (+3 false)",
+          "cushion": "21/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.9359,
+        "precision": 1.0,
+        "mota": 0.9322,
+        "id_switches": 7,
+        "position_error_in_median": 0.171,
+        "speed_error_median_relative": 0.0406,
+        "speed_error_p95_in_s": 12.58,
+        "events_found": {
+          "collision": "3/5 (+1 false)",
+          "cushion": "19/21 (+0 false)",
+          "pot": "0/0 (+1 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 78,
+          "evidence_frames": 103,
+          "skipped_source_frames": 13
+        }
+      }
+    },
+    {
+      "id": "2026-09-26T04:06:45+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "26 Sep baseline: the 23 Sep evening work as found (ball numbers, realistic simulator, cushion-nose fit), before any change today",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 403,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 31.992,
+            "moving_repeats": 29,
+            "evidence_frames": 27,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 3,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 1 cushion -- 2 contacts -- nothing potted -- 2.1s",
+            "shot 2: CUE struck -- hit the 5 first -- 2 cushions -- potted the 5 -- 5.4s"
+          ],
+          "processing_fps": 35.19,
+          "tracks_reported": 7,
+          "short_tracks": [],
+          "peak_speed_in_s": 352.1,
+          "speed_jitter_in_s": {
+            "mean": 11.06,
+            "max": 217.0,
+            "samples": 156
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 1.468,
+            "samples": 3858
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 23.976,
+            "moving_repeats": 28,
+            "evidence_frames": 23,
+            "skipped_source_frames": 3
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "collision": 3,
+            "ball_struck": 4,
+            "cushion": 5
+          },
+          "shots": [
+            "shot 1: CUE struck -- 5 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 31.65,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 144.9,
+          "speed_jitter_in_s": {
+            "mean": 3.42,
+            "max": 67.4,
+            "samples": 297
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.416,
+            "samples": 2679
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 277,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 41.108,
+            "moving_repeats": 68,
+            "evidence_frames": 38,
+            "skipped_source_frames": 35
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 5,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 5 cushions -- potted the 2 -- 10.2s"
+          ],
+          "processing_fps": 33.45,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 81.8,
+          "speed_jitter_in_s": {
+            "mean": 2.65,
+            "max": 36.9,
+            "samples": 263
+          },
+          "rest_jitter_in": {
+            "mean": 0.006,
+            "max": 0.355,
+            "samples": 3367
+          }
+        }
+      },
+      "open_issues": [],
+      "ground_truth": {
+        "recall": 0.8457,
+        "precision": 1.0,
+        "mota": 0.8444,
+        "id_switches": 2,
+        "position_error_in_median": 0.301,
+        "speed_error_median_relative": 0.0271,
+        "speed_error_p95_in_s": 10.02,
+        "events_found": {
+          "collision": "4/6 (+3 false)",
+          "cushion": "20/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.8226,
+        "precision": 0.9935,
+        "mota": 0.8162,
+        "id_switches": 2,
+        "position_error_in_median": 0.209,
+        "speed_error_median_relative": 0.0516,
+        "speed_error_p95_in_s": 20.91,
+        "events_found": {
+          "collision": "2/5 (+3 false)",
+          "cushion": "15/21 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 82,
+          "evidence_frames": 101,
+          "skipped_source_frames": 12
+        }
+      }
+    },
+    {
+      "id": "2026-09-26T13:04:59+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "26 Sep: phantom-cushion fix (an approach expires once the ball is seen standing); scene clock bounded by frame counts, velocities rescaled when its rate changes, 5% snap; hand-placed corners measure the cloth inside them, grey cloth modelled without a hue; too-small tables refused; undecodable frames skipped; the app (billiards app) and live mode added, which do not change these numbers",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 403,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 30.0,
+            "moving_repeats": 30,
+            "evidence_frames": 29,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 3,
+            "cushion": 2,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 2 contacts -- nothing potted -- 2.1s",
+            "shot 2: CUE struck -- hit the 5 first -- 2 cushions -- potted the 5 -- 5.4s"
+          ],
+          "processing_fps": 38.46,
+          "tracks_reported": 7,
+          "short_tracks": [],
+          "peak_speed_in_s": 402.4,
+          "speed_jitter_in_s": {
+            "mean": 12.04,
+            "max": 267.3,
+            "samples": 155
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 1.468,
+            "samples": 3857
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 23.976,
+            "moving_repeats": 27,
+            "evidence_frames": 29,
+            "skipped_source_frames": 3
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3,
+            "cushion": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 4 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 33.23,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.8,
+          "speed_jitter_in_s": {
+            "mean": 3.67,
+            "max": 88.9,
+            "samples": 300
+          },
+          "rest_jitter_in": {
+            "mean": 0.013,
+            "max": 0.416,
+            "samples": 2673
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 277,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.29,
+            "moving_repeats": 58,
+            "evidence_frames": 34,
+            "skipped_source_frames": 34
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 10.2s"
+          ],
+          "processing_fps": 34.37,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.1,
+          "speed_jitter_in_s": {
+            "mean": 3.16,
+            "max": 35.8,
+            "samples": 235
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.355,
+            "samples": 3384
+          }
+        }
+      },
+      "open_issues": [
+        "a ball against the far cushion is still not seen (detector.search_raised_bed is off: it split albin_fedor's 8 in two)",
+        "the real clips' source frame rate is uncertain: 30.0 / 23.976 / 33.3 fps read off three clips of the same broadcast",
+        "grey cloth needs its corners placed by hand",
+        "a faint nose line lets the cloth outline take in the cushion tops (1080p synthetic, before its line was scaled)"
+      ],
+      "ground_truth": {
+        "recall": 0.8457,
+        "precision": 1.0,
+        "mota": 0.8444,
+        "id_switches": 2,
+        "position_error_in_median": 0.301,
+        "speed_error_median_relative": 0.0271,
+        "speed_error_p95_in_s": 10.02,
+        "events_found": {
+          "collision": "4/6 (+3 false)",
+          "cushion": "20/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.8221,
+        "precision": 0.9935,
+        "mota": 0.8157,
+        "id_switches": 2,
+        "position_error_in_median": 0.211,
+        "speed_error_median_relative": 0.0488,
+        "speed_error_p95_in_s": 18.68,
+        "events_found": {
+          "collision": "2/5 (+3 false)",
+          "cushion": "15/21 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 81,
+          "evidence_frames": 101,
+          "skipped_source_frames": 12
+        }
+      }
+    },
+    {
+      "id": "2026-09-26T17:21:30+07:00",
+      "commit": "b46bb6a",
+      "dirty": true,
+      "note": "26 Sep, end of day: cushion-nose search 6 -> 10 in; simulator lines scale with the picture; albin_fedor's 13:04 '5 potted' was a stray track, now reported missed; plus everything in the 13:04 entry (phantom-cushion fix, bounded scene clock, grey cloth, hand-placed corners, the app and live mode)",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 403,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 31.148,
+            "moving_repeats": 29,
+            "evidence_frames": 18,
+            "skipped_source_frames": 6
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 4,
+            "cushion": 2
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 2 contacts -- nothing potted -- 2.1s",
+            "shot 2: CUE struck -- hit the 5 first -- 2 cushions -- 2 contacts -- nothing potted -- 5.4s"
+          ],
+          "processing_fps": 23.97,
+          "tracks_reported": 7,
+          "short_tracks": [],
+          "peak_speed_in_s": 406.1,
+          "speed_jitter_in_s": {
+            "mean": 12.77,
+            "max": 270.9,
+            "samples": 159
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 1.516,
+            "samples": 3856
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 23.976,
+            "moving_repeats": 27,
+            "evidence_frames": 29,
+            "skipped_source_frames": 3
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3,
+            "cushion": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 4 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 22.1,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.9,
+          "speed_jitter_in_s": {
+            "mean": 3.76,
+            "max": 88.9,
+            "samples": 300
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.416,
+            "samples": 2695
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 277,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.168,
+            "moving_repeats": 57,
+            "evidence_frames": 33,
+            "skipped_source_frames": 34
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 10.2s"
+          ],
+          "processing_fps": 23.27,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.4,
+          "speed_jitter_in_s": {
+            "mean": 3.07,
+            "max": 35.8,
+            "samples": 235
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.356,
+            "samples": 3386
+          }
+        }
+      },
+      "open_issues": [
+        "albin_fedor's 5-ball pot (far-left corner) is missed unless detector.search_raised_bed is on, which also adds a phantom",
+        "the real clips' source frame rate is uncertain: 31.1 / 23.976 / 33.2 fps read off three clips of the same broadcast",
+        "grey cloth needs its corners placed by hand",
+        "a camera in the table's corner scores MOTA 0.57 (tools/robustness.py)"
+      ],
+      "ground_truth": {
+        "recall": 0.8457,
+        "precision": 1.0,
+        "mota": 0.8444,
+        "id_switches": 2,
+        "position_error_in_median": 0.301,
+        "speed_error_median_relative": 0.0271,
+        "speed_error_p95_in_s": 10.02,
+        "events_found": {
+          "collision": "4/6 (+3 false)",
+          "cushion": "20/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.8221,
+        "precision": 0.9935,
+        "mota": 0.8157,
+        "id_switches": 2,
+        "position_error_in_median": 0.211,
+        "speed_error_median_relative": 0.0488,
+        "speed_error_p95_in_s": 18.68,
+        "events_found": {
+          "collision": "2/5 (+3 false)",
+          "cushion": "15/21 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 81,
+          "evidence_frames": 101,
+          "skipped_source_frames": 12
+        }
+      }
     }
   ],
   "clips": {
@@ -645,18 +1784,21 @@
       "video": "fedor_shot.mp4",
       "balls_visible": 8,
       "real_pots": 1,
-      "notes": "Rack graphic shows 2,3,4,6,7,8,9 -- seven objects plus the cue. One shot: the cue ball runs the length of the table, hits the blue ball into the far corner, then comes off the top rail and settles. The clip cuts to another angle at the very end."
+      "detectable_pots": 1,
+      "notes": "Rack graphic shows 2,3,4,6,7,8,9 -- seven objects plus the cue. One shot: the cue ball runs the length of the table, hits the blue 2-ball into the near-right corner, then comes off several rails and settles. The clip cuts to another angle at the very end."
     },
     "albin_fedor": {
       "video": "albin_fedor.mp4",
       "balls_visible": 7,
-      "real_pots": 1,
-      "notes": "Rack graphic shows 4,5,6,7,8,9 -- six objects plus the cue -- and loses the 4 at frame 157. That ball spends the whole clip sitting in the bottom-left pocket jaw, which is inside the detector's pocket-exclusion zone, so it is never tracked and its pot cannot be reported: 0 is the right answer here, not 1. Any pot this clip reports is a phantom."
+      "real_pots": 2,
+      "detectable_pots": 1,
+      "notes": "Two pots, checked frame by frame. (1) The pink 4-ball sits in the near-left pocket jaws from the start and the cue ball knocks it in at about frame 155; it is inside the pocket-exclusion zone, so it is never tracked and this pot cannot be reported. (2) The purple 5-ball is struck at about frame 555 and drops into the far-left corner at frame 566-568; this one is fully visible and should be reported. The rack graphic lags both: it drops the 4 somewhere between frames 200 and 400, and only starts fading the 5 at frame 750. (Until 23 Sep 2026 this entry said the clip had one pot, untrackable, so any reported pot was a phantom -- wrong: the graphic had been read without checking the table.)"
     },
     "fedor_jump": {
       "video": "fedor_jump.mp4",
       "balls_visible": 9,
       "real_pots": 0,
+      "detectable_pots": 0,
       "notes": "Rack graphic shows 2,3,4,5,6,7,8,9 throughout -- eight objects plus the cue, and nothing is potted."
     }
   }

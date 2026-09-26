@@ -24,18 +24,27 @@ Two things make the numbers below trustworthy rather than impressions:
 | Metric | v1 | v2 |
 |---|---|---|
 | Balls tracked | 2 (one cue + one object ball) | all of them |
-| MOTA | not measurable | **0.936** |
-| Precision / recall | — | **1.000** / 0.937 |
-| ID switches over a full break | identity was not maintained | **2** |
-| Median position error | — | **0.150 in** (ball radius 1.125 in) |
-| 95th-pct position error | — | 0.40 in |
+| MOTA | not measurable | **0.844** (0.816 on a screen-recorded-style clip) |
+| Precision / recall | — | **1.000** / 0.846 |
+| Median position error | — | **0.30 in** (ball radius 1.125 in) |
+| Median speed error | — | **2.7%** (4.9% screen-recorded) |
+| Cushion contacts found | none detected | **20 of 23**, none false |
 | Colour parameters to tune | 4 arrays, per ball, per video | **0** |
 | Pixel thresholds in the code | at least 6 | **0** |
-| Speed (1280×720) | n/a (blocked on a key press per frame) | **23 fps**, 27 on rewrapped broadcast footage |
+| Speed (1080p source) | n/a (blocked on a key press per frame) | **26-27 fps** writing video, 60-80 without |
 | Handles a camera cut | no | yes — pauses, re-finds the table |
 
 "v1" has no notion of multiple balls or identity, so most MOT metrics are
 undefined for it.
+
+These are the numbers of 26 Sep 2026 (`reports/run-log.json`). The synthetic
+clip is filmed through a physical camera behind an end rail, on the sample
+broadcasts' blue-grey cloth with their ball colours, and scored on balls at
+least half in view. On 23 Sep, before the cloth and ball colours were changed
+(§11.5, §12.1), the same table read MOTA 0.923 / 0.932, recall 0.927, 0.21 in,
+2.1% and 21 of 23 cushions. The earlier figures quoted below (MOTA 0.936, 0.150 in,
+23 fps and so on) were measured on the old synthetic view, which no real camera
+can produce, and are kept as they were written. The two sets aren't comparable.
 
 ---
 
@@ -364,8 +373,8 @@ potted #7 -- 5.4s`.
   full event log.
 * **Ground-truth simulator and MOT scorer**, so any future change is measured
   rather than eyeballed.
-* **76 tests**, including end-to-end accuracy assertions, a camera-cut test
-  and a repeated-frame test.
+* **131 tests**, including end-to-end accuracy assertions, a camera-cut test,
+  a repeated-frame test and a screen-recorded-clip speed test.
 * Works **headless**.
 
 ---
@@ -445,6 +454,10 @@ You should not need to touch colour at all. In rough order of likelihood:
 | `tracker.coast_frames_per_hit` | A ball hidden for a long time is renumbered when it reappears (raise), or brief false detections still draw trajectories (lower). |
 | `table.repeat_frame_ball_areas` | A slow-rolling ball is being replayed instead of measured (lower), or a clip with sensor noise never registers a repeated frame (raise). `repeat_frame_max_run: 0` turns the whole thing off. |
 | `events.contact_distance_ball_diameters` | Obvious contacts are missed (raise), or balls that clearly passed each other are reported as collisions (lower). Real contacts measured 0.80–1.12 on the sample clips, near misses 1.40+. |
+| `tracker.revive_window_s` / `revive_distance_ball_diameters` | A ball that reappears is given a new number (raise), or two different balls are merged (lower). Pots are reported this late. |
+| `table.source_clock` | Off, every frame is timed by the file's clock. Only engages on a file that repeats frames while balls move. |
+| `table.ball_parallax` | Off, balls are placed as if painted on the cloth — 2-4 in off on a broadcast angle. |
+| `events.cushion_contact_tolerance_ball_radii` | Cushion bounces far from the fitted rail are missed (raise), or balls turning near a rail are called cushions (lower). |
 | `tracker.max_speed_in_s` | Only if you film something faster than a pool break. |
 
 Start with `python main.py calibrate <video> --save-preview calib.png`. Almost
@@ -463,8 +476,9 @@ every tracking problem is visible there first.
   ball in area and 0.55 ball radii thick, and the real 8 ball on
   `fedor_shot.mp4` is 0.49 and 0.54. It survives as one intermittent track. The
   gates that would remove it would cost real balls, so it is left in.
-* A ball **resting in the pocket jaws** is inside the excluded region and is
-  reported as `potted`.
+* A ball **resting in the pocket jaws** is inside the excluded region. If it
+  rolls back out within `revive_window_s` it keeps its identity (see §11.4);
+  if it stays there it is reported `potted` once the window has passed.
 * **Cloth-coloured balls** are hard by construction — the detector looks for
   "not cloth".
 * The automatic fit needs the **whole bed visible**; use `--table-corners`
@@ -473,19 +487,25 @@ every tracking problem is visible there first.
   the aspect gate can reject; the track coasts through instead.
 * A **cue stick lying across the bed with a hand on it** can occasionally form a
   ball-sized blob and start a short-lived track.
-* A ball that rolls into the **excluded rail margin** (`bed_margin` is 0.35 ball
-  diameters, or 0.79 in) is undetectable there, so a cushion contact taken
-  slowly can be missed: on `fedor_shot.mp4` the cue ball is unobserved for six
-  frames precisely while it bounces off the far rail, which smears the velocity
-  reversal across three coasting frames and never shows the 18 in/s jump the
-  cushion test looks for. The event is missing; the trajectory through it is
-  not.
-* **Residual speed jitter on rewrapped broadcast footage**, about 4 in/s on
-  `fedor_shot.mp4`. Dropping the duplicated frames fixes the zero-motion
-  measurements, but the distinct frames that remain are still irregularly
-  spaced in *true* time — the container is constant-rate at 37.5 fps while
-  source frames appear at one, two or three slot intervals — and nothing in the
-  file records which. `dt` from the frame index is the best estimate available.
+* A ball **against the far cushion** appears past the far edge of the bed —
+  its centre is a radius above the cloth — and so outside the region searched
+  for balls. The far-rail bounce is still found from the path either side of
+  it (§11.3), and a hidden ball's prediction bounces off the rail rather than
+  sailing through it, but the ball itself is not seen there. Widening the
+  search region to where balls *appear* fixed this on the synthetic clip and
+  broke the real ones (§11.2).
+* **The calibrated outline is the outline of the cloth**, and on a real table
+  the cushions are clothed too: filmed from behind an end rail, the far
+  cushion's face and the long cushions' tops count as bed. On those rails the
+  cushion nose is up to ~4 in inside the fitted edge. Cushion detection allows
+  for it; positions near those rails, and the pockets' positions, carry it.
+  Fitting the nose lines themselves is the fix.
+* **The source frame rate** of a screen-recorded clip is only known to about
+  10% on clips this short (§11.1): which frames skipped a source frame is
+  known far better than exactly how long a source frame is.
+* On the retimed synthetic clip, a ball bouncing off a long rail **right
+  beside a side pocket** is reported potted: for a moment, bouncing and
+  heading into the pocket look the same.
 
 ---
 
@@ -494,26 +514,31 @@ every tracking problem is visible there first.
 ```
 billiards/
   config.py      physical-unit configuration, presets, YAML/JSON
-  geometry.py    quad fitting, homography, orientation, perspective scale
+  balls.py       which numbered ball each track is, from its colour
+  clock.py       the scene's clock, recovered from moving balls (§11.1)
+  geometry.py    quad fitting, homography, orientation, camera, ball parallax
   table.py       cloth colour measurement, table calibration
   detect.py      ball detection, cluster splitting, colour signatures
   kalman.py      constant-velocity + friction filter, adaptive noise
   assignment.py  Hungarian assignment (+ pure-NumPy fallback)
   track.py       track lifecycle and data association
-  events.py      collisions, cushions, pots, balls struck
+  events.py      collisions, cushions, pots, balls struck, from the raw paths
   shots.py       grouping those events into readable shots
   render.py      annotated view and synthetic overhead diagram
   video.py       input, output, CSV/JSON export
   pipeline.py    orchestration, camera-cut handling, whole-video driver
   cli.py         command line interface
+  app/           the web app: library, set-up, runs, results, live (§12.2-12.3)
 tools/
-  make_synthetic_clip.py   physics simulator + renderer + ground truth
-  evaluate.py              MOT scoring, against the synthetic clip
+  make_synthetic_clip.py   physics simulator, pinhole renderer, ground truth
+                           (positions, speeds, visibility, every event)
+  evaluate.py              MOT, speed and event scoring against it
   run_report.py            noise metrics on the real clips, appended to a log
+  robustness.py            the break under other cloths, cameras, sizes (§12.4)
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
 results/         rewritten by run_report.py; annotated video + data per clip
-tests/           76 tests
+tests/           131 tests
 ```
 
 `evaluate.py` and `run_report.py` answer different questions, and both are
@@ -528,3 +553,291 @@ synthetic clip is then the guard against a noise fix that quietly costs recall:
 python tools/run_report.py --ground-truth --note "what I changed"
 python tools/run_report.py --show          # the whole history
 ```
+
+---
+
+## 11. Second pass (23 Sep 2026): the clock, parallax, events and identity
+
+Everything above was measured on a synthetic clip that turned out to be kinder
+than real footage in two ways nobody had checked, and against event counts that
+nobody had ground truth for. The simulator now records every collision, cushion
+contact and pot it resolves, can film a clip the way a screen recorder captures
+a broadcast, and films through a real pinhole camera. Scored that way, four
+problems stood out.
+
+### 11.1 The file's clock is not the scene's — `billiards/clock.py`
+
+The sample clips are 25-30 fps content screen-recorded at 37.5 fps. Skipping
+the exact copies (§3.5a) fixed the double counting, but the frames that remain
+were still timed by the slots between them. That is wrong. A ball rolling at
+constant speed moves **the same distance** after a one-slot gap as after a
+two-slot gap: the median ratio is 0.96, where the file's clock predicts 2.0.
+Each new frame is simply the next source frame. About one step in four to
+seven spans *two* source frames, because the recorder missed one, and shows
+exactly twice the travel.
+
+So each moving ball is used as a clock. Its filter predicts where it will be
+after one, two or three source frames, and the count the detections decisively
+agree with is taken. The source rate is estimated from those decisive frames
+only. The first version also counted ties, and that was a feedback loop: the
+default guess wins every tie, so the estimate drifted to 33 fps on one clip. A
+version that fell back to the file's clock when unsure was worse again: two
+clocks hand the filter jittery intervals, and the 95th-percentile speed error
+rose from 11 to 17 in/s.
+
+On a clip filmed like the broadcasts, speed error fell from **8.8% to 2.2%**
+(median) and from 25 to 11 in/s at the 95th percentile. Real-clip speed jitter
+fell by up to half, and on `albin_fedor` a missed pot was found. On
+constant-rate footage the clock never engages, so nothing changes there.
+
+### 11.2 A ball is not painted on the cloth — `geometry.raised_plane_homography`
+
+A ball's centre is a radius above the cloth. The detector finds its silhouette,
+whose centre is the image of that raised point, and the cloth homography
+projected it to where the line of sight meets the cloth. That point is further
+from the camera by the radius over the tangent of the viewing angle. The camera
+is recoverable from the table's own homography (the focal-length constraint
+that already decides the table's orientation), and on the sample broadcasts it
+sits about 135 in behind the near rail and 68 in up, with a 36° lens. The error
+was **2.4 in at the near rail and 4.0 in at the far one**, on every ball.
+
+Balls are now mapped through the plane at ball-centre height. On `fedor_shot`
+the cue ball's bounce off the near rail went from turning round 2.1 in short of
+the cushion to 0.2 in off it. The synthetic camera had hidden this: its view
+could not be produced by any real camera, and it drew balls at the image of the
+spot they rested on. On the new, physical synthetic clip the tracker without
+this correction scores MOTA **−0.43**.
+
+Widening the search region to where balls *appear* (past the far bed edge)
+was tried and reverted. It worked on the synthetic clip, but on `albin_fedor`
+it made 30 tracks for 7 balls, because the real far edge is the top of the far
+cushion's face (§9).
+
+### 11.3 Events from the balls' raw paths — `billiards/events.py`
+
+The filter turns a corner over two or three frames. By the time its velocity
+visibly reverses, the ball is several inches off the cushion it hit, so the old
+cushion test found **2 of 23** contacts on the synthetic break. Events now come
+from the raw detections:
+
+* **Cushions:** for each rail, each raw step is classed as toward or away from
+  it. A change from toward to away, within reach of the rail and with no other
+  ball near, is a contact. Where the ball was not seen at the bounce, the two
+  lines either side of it are extended until they meet. A corner fit (three
+  samples in, three out, best split, committed only once the next split has
+  been tried and lost) adds a few more.
+  - An earlier version accepted the first split that differed, which put the
+    corner a frame early, with the outgoing line straddling the bounce.
+* **Collisions:** two balls' paths turning a corner at the same moment, a
+  ball's width apart and closing, or one ball's corner beside a ball that did
+  not visibly turn.
+  - The sampled closest-approach test (§3.6) stays: it finds contacts where the
+    ball is potted or hidden too soon after for its path to turn a corner.
+
+Cushions found went from **5 to 49 of 55** across the synthetic clips, with
+no false ones, and `fedor_shot` now reports its four cushions in order. Event
+ground truth ignores collisions between balls that were already touching (a
+static rack passing momentum on the break), which no camera can see.
+
+### 11.4 A ball that comes back is the same ball — `billiards/track.py`
+
+A track that dies now waits `revive_window_s` in limbo. A new detection of the
+same colour near where it vanished, or further along its path if it was
+rolling, is that ball, and its death, and any pot, is withdrawn. Pots are
+therefore reported late, at the frame the ball vanished, and the shot log files
+late events under the shot they happened in.
+
+On `albin_fedor` the cue ball stopped in the pocket jaws after knocking the 4
+in. That had been logged as a scratch and turned the cue ball into "#10" for
+the rest of the clip. Both are gone. Two related fixes:
+
+* The cue-ball and 8-ball roles are held through coasting and through
+  shadows, which had dropped a cue ball's white fraction from 0.77 to 0.41.
+* An unseen ball's prediction bounces off a rail it reaches, unless it is
+  heading into a pocket.
+
+### 11.5 The benchmark changed
+
+The synthetic clip is now filmed through a physical pinhole camera behind an
+end rail. It has raised cushions with cloth faces and a venue of grey carpet
+and sponsor banners, and every ground-truth row records how much of the ball is
+in view. Balls less than half visible are ignored when scoring, as MOT
+benchmarks ignore occluded targets. **Numbers before and after 23 Sep 2026 are
+not comparable**, and the run log says so where they change.
+
+---
+
+## 12. Third pass (26 Sep 2026): an app, live tracking, and other footage
+
+### 12.1 Loose ends from the 23 Sep evening
+
+The evening of 23 Sep added ball numbers (`billiards/balls.py`), gave the
+simulator the broadcasts' own ball colours and cloth, and began fitting the
+table to the cushion noses (`table.refine_to_cushion_noses`). It stopped with
+two tests failing and nothing written up. Picking it up:
+
+* **Phantom cushions.** `fedor_shot` reported a cushion 39 in from any rail,
+  and `fedor_jump` one 24 in away. A ball rolled toward a rail, stopped short,
+  and was knocked away seconds later. Steps too small to class leave a ball's
+  "approaching" state alone, so the knock read as the far side of a bounce. An
+  approach now expires once the ball has been *seen* all but still for
+  `events.cushion_approach_max_age_s` (0.6 s). A plain age limit was tried
+  first. It also dropped a real bounce on `albin_fedor`, where the cue ball
+  spends 0.6 s hidden in a pocket's jaws, and an unseen ball proves nothing
+  about stopping. Both clips now report 4 cushions, as the video shows; the
+  synthetic scores did not move.
+* **The clock ran away.** On the 4-second screen-recorded test clip it read
+  **57.9 fps** off 25 fps content, and on `fedor_shot` 41.1 fps from a
+  37.5 fps file: more source frames than the file has slots, which is
+  impossible. The cause is the filters' lag. Whether a step spans one source
+  frame or two is judged against a ball's velocity, and that velocity is in
+  the time base the filter was fed. When the rate estimate rises, for the few
+  frames a filter takes to catch up, a one-frame step reads as two, the
+  estimate rises further, and so on. Three changes:
+  1. Every ball's velocity is re-expressed in the new clock whenever the
+     estimate changes (`BallKalman.rescale_time`).
+  2. The rate is bounded by counting frames: no more than the file's rate, no
+     less than the new-frame rate, and no more than that over 0.65.
+  3. It snaps to a broadcast standard within 5% (was 3%), because decisive
+     frames lean toward short gaps and read 25 fps content 3-4% fast. The
+     standards' 5% windows do not overlap.
+
+  Fitting a period to the measured intervals instead was tried and dropped.
+  Positions alone cannot tell a ball twice as fast filmed half as often, so
+  every measured interval simply echoed the period the filter had been fed.
+  Result: 25.0 fps on the test clip, and speed error on the report's longer
+  screen-recorded clip went from 5.2% to 4.9%. Real-clip jitter rose slightly
+  (`fedor_shot` 2.65 to 3.16 in/s). The three real clips still read 30.0,
+  23.976 and 33.3 fps though they come from one broadcast, so their true rate
+  is not known.
+* **The far cushion, again.** Searching the band past the far edge, now that
+  the edge is at the nose, raised synthetic recall 1.6 points and removed
+  `fedor_shot`'s extra track. On `albin_fedor` the black 8 against the far
+  rail ran into the dark line under the nose and split in two. That stayed
+  true after two mitigations: nothing new may start in the band, and a band
+  detection overlapping a bed ball is dropped. It is kept as
+  `detector.search_raised_bed`, off.
+* **Test bars** re-set to the harder benchmark, with measured values beside
+  them: recall 0.797, MOTA 0.783 on the constant-rate fixture. Most of the
+  misses are the blue stripe, whose band the blue-grey cloth mask takes for
+  cloth (recall 0.31).
+
+### 12.2 The app — `billiards/app/`
+
+`python main.py app` serves a page on `127.0.0.1:8765` and opens it. It uses
+only the standard library (`http.server`), so it needs nothing the tracker does
+not. The page is plain HTML, CSS and JavaScript with no build step and no CDN,
+because this network blocks some of them.
+
+| Module | Does |
+|---|---|
+| `workspace.py` | The library (folders scanned, files added, uploads), per-video settings, run folders, probed metadata and thumbnails, all under `billiards-workspace/`. A video is known by a hash of its path. |
+| `jobs.py` | Runs in the background, one at a time by default: progress, the latest annotated frame as a JPEG, events so far, cancel. At the end it writes `viewer.json`, every ball's path arranged for the page, with the table and each ball's colour. |
+| `preview.py` | The set-up check: calibration (cached per video and settings) and detection on one chosen frame, with plain-language warnings, and the cloth mask. |
+| `live.py` | Live sessions (§12.3). |
+| `server.py` | The routes, including `Range` for seeking in video, MJPEG for live pictures, and uploads. It refuses requests whose `Host` or `Origin` is not the app, so a web page open in the same browser cannot drive it. |
+
+`pipeline.run` gained the hooks this needs: `on_frame`, `should_stop`,
+`annotate` and `writer`. It also writes cloth measured inside corners placed
+by hand (§12.4).
+
+**Video a browser plays.** OpenCV's pip wheels write H.264 only through
+Windows Media Foundation (about 50 Mbit/s, ignoring the quality setting) or
+not at all, and their VP8 writes at about 40 fps. `video.browser_codec()`
+picks, best first: `ffmpeg` from `imageio-ffmpeg` (libx264 at about 180 fps,
+CRF 20), OpenCV's `avc1`, then `VP80`, each tried once by writing and reading
+back. Failing all three it writes `mp4v`, and the page shows it frame by frame.
+
+**The results page** plays the tracked video with a top-down view drawn from
+`viewer.json`, kept in step through `requestVideoFrameCallback`. It has a
+timeline of shots and events, lists of shots, events and balls, and a speed
+chart. Events are named by the ball's final label ("cue ball hit the 6"),
+because the event log only carries track ids. A diagram colours balls by
+number in the set the tracker chose (`summary.ball_set`), since measured
+colours are dull. `#/run/<id>?t=4.7&tab=events&ball=6` opens it at a moment.
+
+### 12.3 Live — `billiards/app/live.py`
+
+Frames do not wait. A reader thread keeps only the newest frame and its number
+in the stream, and the tracker takes whichever is newest when it is ready. When
+tracking is slower than the camera, frames are skipped, and the skipped numbers
+become gaps its clock sees. The table is found from 12 frames over the first
+second and a half, or from corners placed by hand on a snapshot, and the search
+retries until it succeeds. A recording repeats the last picture over skipped
+frames, so it keeps the stream's clock. Stream addresses open with 8 s timeouts.
+Without them a wrong address takes FFmpeg half a minute to give up on.
+
+Measured on `fedor_shot` replayed at its own pace: 38 fps in, 26-29 fps
+tracked, about one frame in four skipped. The shot log read "CUE struck, hit
+the 2 first, 3 cushions, potted the 2" against 4 cushions from the file, the
+cost of the skipped frames. Tested end to end on a synthetic clip. Not tested
+with a real camera: the work computer's webcam was not turned on.
+
+### 12.4 Footage unlike the sample clips — `tools/robustness.py`
+
+The three sample clips are one venue, one camera angle and one cloth. The
+robustness tool renders the same break under the conditions other footage
+brings, tracks each with default settings, and scores it against ground truth.
+It writes `reports/robustness.json` and `results/robustness.png`. Two things it
+found were the scoring's fault, not the tracker's:
+
+* **A pool table is symmetric.** Which corner the tracker calls (0, 0) depends
+  on where the camera stands, and from a long rail, the ceiling or a corner it
+  was a mirror of the simulator's. Scored without allowing for that, three
+  views that track well read MOTA -0.4 to -0.75. The tool (and
+  `evaluate.best_symmetry`) now scores under whichever of the four symmetries
+  fits.
+* **The simulator drew its shadow lines 2 px at every size.** Scaled from
+  1080p to the tracker's 1280 px, the line under each cushion's nose became a
+  sub-pixel trace, the clothed cushion tops ran into the bed, and the outline
+  was fitted around both: MOTA -0.04. The line now scales with the picture.
+  The weakness it exposed is real, though: a faint nose line lets the outline
+  take in the cushion tops, and a per-rail offset cannot correct the skewed
+  quadrilateral that results.
+
+Measured 26 Sep (4 s of play each, default settings; `reports/robustness.json`
+holds the latest run). Each row differs from the first in one respect:
+
+| Variant | MOTA | Recall | Position | Speed | Numbers right | Cushions |
+|---|---|---|---|---|---|---|
+| baseline: end camera, blue-grey cloth, 720p, 30 fps | 0.81 | 0.81 | 0.28 in | 2.5% | 91% | 16/20 |
+| green cloth | 0.87 | 0.87 | 0.24 in | 2.2% | 97% | 18/20 |
+| tournament-blue cloth | 0.87 | 0.88 | 0.27 in | 2.4% | 82% | 19/20 |
+| burgundy cloth | 0.86 | 0.86 | 0.30 in | 2.4% | 95% | 19/20 |
+| camel cloth | 0.74 | 0.74 | 0.29 in | 2.1% | 94% | 19/20 |
+| grey cloth | no table found (refused); 0.79 with corners placed by hand | | | | | |
+| camera across from a long rail | 0.72 | 0.72 | 0.39 in | 2.4% | 87% | 15/20 |
+| camera on the ceiling | 0.88 | 0.89 | 0.41 in | 2.2% | 77% | 19/20 |
+| tripod at a corner, table small | 0.57 | 0.72 | 1.87 in | 6.0% | 76% | 18/20 |
+| 854x480 | 0.77 | 0.80 | 0.41 in | 3.9% | 72% | 19/20 |
+| 1920x1080 | 0.79 | 0.79 | 0.29 in | 2.4% | 89% | 17/20 |
+| filmed at 60 fps | 0.80 | 0.82 | 0.32 in | 2.5% | 85% | 11/15 |
+| screen-recorded broadcast | 0.80 | 0.80 | 0.22 in | 4.7% | 88% | 12/19 |
+| the broadcasts' ball set | 0.82 | 0.82 | 0.27 in | 2.5% | 89% | 18/19 |
+
+The 480p row is from after the nose search was deepened (below); before it, and
+after the simulator's lines were scaled, 480p read MOTA -0.03: the far cushion's
+top and face merged with the bed, 6.5 in past the nose, and the search only
+looked 6 in in. `table.cushion_nose_search_in` is now 10 in, which puts the
+480p outline within 1.1 in of true, the same as at 720p, and leaves the
+synthetic benchmark unchanged.
+
+Three fixes came out of it:
+
+* **Grey cloth.** A nearly neutral cloth has no hue to window on, and its
+  pixels were rejected as "too grey to be cloth". Searched for automatically,
+  the most saturated thing in view, a blue banner, was taken for the table,
+  and every ball came out 6 px across. Now:
+  - A table on which a ball would be under 6 px across (`table.min_ball_radius_px`)
+    is refused, with a message that says why.
+  - With corners placed by hand, the cloth is measured inside them. If most
+    of that bed is unsaturated, it is modelled with no hue: unsaturated, and
+    about this bright, with a narrow window above its brightness so the
+    ivory cue ball stays out (`ClothModel.neutral`). Grey cloth with its
+    corners placed: MOTA 0 before, 0.79 after, against the benchmark's 0.81.
+* **Hand-placed corners measure the cloth inside them**, for any cloth: in a
+  wide shot the most common saturated colour can be the floor or a banner.
+* **A frame that will not decode** in the middle of a file is skipped, up to
+  eight in a row, instead of ending the run. Paths with characters outside the
+  system code page are opened through their Windows short name on OpenCV
+  builds that cannot open them directly.

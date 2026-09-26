@@ -62,6 +62,10 @@ class TableConfig:
     #: and the table corners.  Sampling many frames and taking a robust median
     #: is what makes calibration survive a player leaning over the rail.
     calibration_frames: int = 25
+    #: A table found automatically on which a ball would be smaller than this
+    #: (radius, pixels, mid-table) is taken to be something else of the
+    #: cloth's colour -- a banner, a sign -- and calibration fails instead.
+    min_ball_radius_px: float = 3.0
 
     #: How far a corner may drift before we decide the camera actually cut or
     #: panned and a recalibration is needed.  Fraction of the table short side.
@@ -140,6 +144,24 @@ class TableConfig:
     #: 0 measures every frame, however little changed.
     repeat_frame_max_run: int = 4
 
+    #: Skipping the copies fixes the measurements, not the clock.  The frames
+    #: that remain are one *source* frame apart -- 40 ms, in the sample clips --
+    #: however many slots of the file separate them, and now and then two
+    #: source frames apart where the recorder missed one; the slot count
+    #: predicts neither.  With this on, the scene's own clock is recovered from
+    #: the moving balls instead (see ``billiards.clock``).  It only engages on a
+    #: file that has repeated a frame while a ball was moving, which a genuine
+    #: constant-rate recording never does, so such a recording is untouched.
+    source_clock: bool = True
+    #: Repeats-while-moving it takes to engage.
+    source_clock_min_moving_repeats: int = 3
+    #: The most source frames one measured frame may be found to span.
+    source_clock_max_skip: int = 3
+    #: A ball's motion is only used as evidence if one more source frame moves
+    #: it at least this many ball radii further -- slower than that, and
+    #: measurement noise cannot tell one frame from two.
+    source_clock_min_step_ball_radii: float = 0.5
+
     #: After a cut, how many consecutive frames must agree on the new table
     #: before it is adopted.  One frame during a crossfade is a poor basis for
     #: a homography that everything downstream depends on.
@@ -158,6 +180,30 @@ class TableConfig:
     #: Shrink the detected table polygon by this many ball diameters before
     #: looking for balls, so cushions/rails/pocket jaws do not create blobs.
     bed_margin_ball_diameters: float = 0.35
+
+    #: Move the fitted edges in from the outline of the cloth to the cushion
+    #: noses (see ``table.refine_to_cushion_noses``).  The cushion tops are
+    #: clothed, so on the sample broadcasts the outline ran two inches outside
+    #: the long rails' noses and over the far cushion's face.
+    fit_cushion_noses: bool = True
+    #: How far inside the outline to look for a nose, in inches.  Deep enough
+    #: for a whole far cushion, top and face: when the line under its nose is
+    #: faint -- a pixel wide at 480p -- the cloth outline runs over all of it,
+    #: 6.5 in past the nose on the synthetic 480p clip, which a 6 in search
+    #: never reached.
+    cushion_nose_search_in: float = 10.0
+    #: The smallest colour step (weighted Lab, as for ball colours) that
+    #: counts as the edge of the bed.  The nose line on the sample clips is a
+    #: step of 20-40 from bed that varies by 1-2.
+    cushion_nose_min_step: float = 10.0
+    #: Nose height, in ball diameters: 63.5% on a regulation pool table.
+    cushion_nose_height_ball_diameters: float = 0.635
+
+    #: Place each ball from its centre, a radius above the cloth, rather than
+    #: as if it were painted on the cloth.  Needs the camera, which is
+    #: recovered from the table's homography; on the sample broadcasts the
+    #: correction is 2.4 in at the near rail and 4.0 in at the far one.
+    ball_parallax: bool = True
 
     @property
     def ball_radius_in(self) -> float:
@@ -284,6 +330,13 @@ class DetectorConfig:
     #: bed, so without this it is detected as a stationary ball on every single
     #: frame -- four phantom balls on a pool table.  0 disables.
     pocket_exclusion_ball_diameters: float = 1.45
+    #: Also search where a ball on the bed can *appear*: seen at the height of
+    #: its centre, a ball against the far cushion is past the bed's far edge.
+    search_raised_bed: bool = False
+    #: ...where a detection with more than this fraction of its disc past the
+    #: bed's edge can follow a ball already being tracked, but never start a
+    #: track of its own.
+    raised_band_outside_fraction: float = 0.55
 
     #: When splitting a cluster, a peak of the distance transform is only a ball
     #: if its height is close to the ball radius.  A wider object (an arm, a
@@ -320,6 +373,13 @@ class DetectorConfig:
     #: well-split pair 62-65, against 16-46 for a hand.  The threshold sits in
     #: that gap.
     cluster_rim_contrast_min: float = 55.0
+
+    #: ...but a blob of two or more candidates out in the open, clear of the
+    #: bed's edge, only needs this.  A hand, forearm or cue reaches the table
+    #: from outside and so crosses the edge; a static rack does not.  Measured:
+    #: rejected blobs in the open on the sample clips 6-13, a camera-realistic
+    #: rack 33-51.
+    cluster_open_rim_contrast_min: float = 30.0
 
     #: A ball *ends* at its rim: one ball-radius out, the colour has to change,
     #: because what surrounds a ball is cloth or another ball and never more of
@@ -404,6 +464,14 @@ class TrackerConfig:
     #: trajectory jitter when nothing is moving.
     stationary_speed_in_s: float = 4.0
 
+    #: A track that dies waits this long in case its ball reappears -- out of
+    #: the pocket jaws, or from behind the player -- within this many ball
+    #: diameters of where it vanished, looking the same.  It then gets its
+    #: identity back and its death (and any pot) is withdrawn.  Pots are
+    #: therefore reported this much later, at the frame the ball vanished.
+    revive_window_s: float = 1.5
+    revive_distance_ball_diameters: float = 3.0
+
 
 @dataclass
 class EventConfig:
@@ -445,6 +513,62 @@ class EventConfig:
     #: Suppress duplicate events for the same pair within this many seconds.
     refractory_s: float = 0.18
 
+    #: A cushion contact puts the ball's centre one radius off the cushion's
+    #: nose; a turn-round within this many *further* radii of the calibrated
+    #: rail line counts.  It is wide because the calibrated outline is the
+    #: outline of the cloth, and on a real table the cushions are clothed too:
+    #: from behind an end rail the camera sees the far cushion's face and the
+    #: long cushions' tops, so on those rails the nose is up to ~4 in inside
+    #: the fitted edge.  Measured on fedor_shot.mp4: the near-rail bounce
+    #: turns round 0.95 in off it, the long-rail one 3.4 in, the far-rail one
+    #: ~4.9 in.  A turn-round next to another ball is never a cushion.
+    cushion_contact_tolerance_ball_radii: float = 4.5
+    #: ...but not within this many ball diameters of a pocket, where a ball
+    #: rattling in the jaws or dropping in turns a corner too.
+    cushion_pocket_clearance_ball_diameters: float = 1.2
+    #: A ball seen all but still for this long since it last closed on a rail
+    #: is no longer approaching it.  Steps too small to class leave a ball's
+    #: "approaching" state alone, so without this a ball that rolled toward a
+    #: rail, stopped short and was knocked away seconds later "bounced" off a
+    #: rail 39 in away (fedor_shot, frame 303).  Real bounces on the sample
+    #: and synthetic clips were closing 0.02-0.4 s before -- or were unseen in
+    #: between, which does not count: albin_fedor's cue ball spends 0.6 s
+    #: hidden in a pocket's jaws before it comes off the rail.
+    cushion_approach_max_age_s: float = 0.6
+    #: Two balls' corners are one collision if they are this close in time...
+    kink_pair_window_s: float = 0.08
+    #: ...and their corners this many ball diameters apart (touching is 1.0).
+    kink_pair_distance_ball_diameters: float = 1.5
+    #: One ball cannot turn two corners closer together than this.
+    kink_refractory_s: float = 0.1
+
+
+@dataclass
+class BallsConfig:
+    """Naming balls by the number printed on them.  See ``billiards.balls``."""
+
+    #: Label balls with their numbers.  Off, a ball is its tracker id (``#5``)
+    #: unless it is the cue ball or the 8.
+    enabled: bool = True
+    #: ``standard`` (4 purple, 5 orange, white-capped stripes), ``tv`` (the
+    #: set in the sample broadcasts: 4 pink, 5 purple, black-capped stripes),
+    #: or ``auto``, which keeps whichever of the two fits the table better.
+    ball_set: str = "auto"
+    #: The numbers that can be on the table: ``1-9`` for 9-ball, ``1-10`` for
+    #: 10-ball, ``1-15`` for 8-ball or when unsure.
+    numbers: str = "1-15"
+    #: A ball whose best available number costs more than this -- about this
+    #: many typical deviations off in hue, lightness, saturation or stripe --
+    #: stays unnumbered rather than being named wrongly.
+    max_cost: float = 3.0
+    #: How much better a different number has to fit before a ball changes
+    #: number, in the same units.
+    stickiness: float = 0.6
+    #: Detections of a ball on its own -- not split out of a cluster, which
+    #: samples the neighbours too -- before it is numbered.  Its colour is an
+    #: average that takes a few of those to settle.
+    min_colour_samples: int = 4
+
 
 @dataclass
 class RenderConfig:
@@ -483,6 +607,7 @@ class Config:
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
     events: EventConfig = field(default_factory=EventConfig)
+    balls: BallsConfig = field(default_factory=BallsConfig)
     render: RenderConfig = field(default_factory=RenderConfig)
 
     #: Resize the input so the long edge is at most this many pixels.  Detection
@@ -580,6 +705,7 @@ _SECTION_TYPES.update(
         "detector": DetectorConfig,
         "tracker": TrackerConfig,
         "events": EventConfig,
+        "balls": BallsConfig,
         "render": RenderConfig,
     }
 )

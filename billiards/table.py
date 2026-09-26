@@ -48,6 +48,10 @@ class ClothModel:
     #: Multiplicative floor on the dark side of the value window.
     min_value_ratio: float = 0.55
     sample_fraction: float = 0.0
+    #: A grey (or black, or white) cloth: too little colour for a hue, so it
+    #: is told apart by being unsaturated and about this bright instead.  See
+    #: ``estimate_cloth_color(..., neutral_ok=True)``.
+    neutral: bool = False
 
     @property
     def _val_low(self) -> float:
@@ -70,9 +74,17 @@ class ClothModel:
     def mask(self, hsv: np.ndarray) -> np.ndarray:
         """Binary cloth mask (uint8 0/255) for an HSV image."""
         h, s, v = cv2.split(hsv)
-        h_ok = cv2.LUT(h, self.hue_lut())
         s_lo = max(0, int(self.sat - self.sat_halfwidth))
         s_hi = min(255, int(self.sat + self.sat_halfwidth))
+        if self.neutral:
+            # Hue is noise on a colourless cloth; being unsaturated and about
+            # this bright is what makes it cloth.
+            v_lo = max(0, int(self.value_low))
+            v_hi = min(255, int(self.val + self.val_halfwidth))
+            s_ok = cv2.inRange(s, np.array(0, np.uint8), np.array(s_hi, np.uint8))
+            v_ok = cv2.inRange(v, np.array(v_lo, np.uint8), np.array(v_hi, np.uint8))
+            return cv2.bitwise_and(s_ok, v_ok)
+        h_ok = cv2.LUT(h, self.hue_lut())
         v_lo = max(0, int(self.value_low))
         v_hi = min(255, int(self.val + self.val_halfwidth))
         s_ok = cv2.inRange(s, np.array(s_lo, np.uint8), np.array(s_hi, np.uint8))
@@ -90,6 +102,7 @@ class ClothModel:
             "val_halfwidth_low": round(self._val_low, 2),
             "value_low": round(self.value_low, 2),
             "sample_fraction": round(self.sample_fraction, 4),
+            "neutral": self.neutral,
         }
 
 
@@ -170,6 +183,33 @@ def _model_from_pixels(
     )
 
 
+def _neutral_model(
+    s: np.ndarray, v: np.ndarray, frames: Sequence[np.ndarray], cfg: Config
+) -> ClothModel:
+    """A grey cloth: how unsaturated and how bright it is, with no hue."""
+    ccfg = cfg.cloth
+    sat = float(np.median(s))
+    val = float(np.median(v))
+    # Tighter than a coloured cloth's saturation window: on grey cloth the
+    # balls are told apart mostly by having colour at all, and a dull one --
+    # the maroon 7 -- is not far above the cloth.
+    sat_hw = _robust_halfwidth(s, sat, ccfg.sat_sigmas, 18.0, ccfg.max_sat_halfwidth)
+    # Brightness is all that separates the cloth from the cue ball, which is
+    # unsaturated too, so the window above the cloth is kept narrow: lit
+    # cloth is barely brighter than its median.  Below, shadows still need the
+    # usual room.
+    val_hw = _robust_halfwidth(v, val, ccfg.val_sigmas, ccfg.min_val_halfwidth, ccfg.max_val_halfwidth)
+    val_hw_up = _robust_halfwidth(v, val, 3.5, 24.0, ccfg.max_val_halfwidth)
+    model = ClothModel(
+        hue=0.0, sat=sat, val=val, hue_halfwidth=180.0, sat_halfwidth=sat_hw,
+        val_halfwidth=val_hw_up, val_halfwidth_low=val_hw * ccfg.shadow_value_factor,
+        min_value_ratio=ccfg.shadow_min_value_ratio, neutral=True,
+    )
+    probe = cv2.cvtColor(frames[len(frames) // 2], cv2.COLOR_BGR2HSV)
+    model.sample_fraction = float(np.count_nonzero(model.mask(probe))) / float(probe[:, :, 0].size)
+    return model
+
+
 def _pixels_in_dominant_region(
     hsvs: Sequence[np.ndarray], model: ClothModel
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
@@ -218,7 +258,9 @@ def _pixels_in_dominant_region(
     return np.concatenate(hs), np.concatenate(ss), np.concatenate(vs)
 
 
-def estimate_cloth_color(frames: Sequence[np.ndarray], cfg: Config) -> ClothModel:
+def estimate_cloth_color(
+    frames: Sequence[np.ndarray], cfg: Config, neutral_ok: bool = False
+) -> ClothModel:
     """Measure the cloth colour from a set of BGR frames.
 
     Pool pixels from every sampled frame, discard anything too dark or too grey
@@ -230,6 +272,13 @@ def estimate_cloth_color(frames: Sequence[np.ndarray], cfg: Config) -> ClothMode
     The estimate is then refined by re-measuring inside the region it selected,
     which is what stops a background that happens to share the cloth's hue from
     widening the window until it accepts everything.
+
+    With ``neutral_ok`` the frames show only the bed (everything else blacked
+    out, because the corners are known), and if most of it has too little
+    colour to count, the cloth is grey: it is then modelled by its low
+    saturation and its brightness, with no hue.  Searched for over a whole
+    frame, a grey cloth is indistinguishable from a grey floor, which is why
+    this is only done inside known corners.
     """
     if not frames:
         raise ValueError("estimate_cloth_color needs at least one frame")
@@ -240,6 +289,8 @@ def estimate_cloth_color(frames: Sequence[np.ndarray], cfg: Config) -> ClothMode
     s_all: List[np.ndarray] = []
     v_all: List[np.ndarray] = []
 
+    lit_s: List[np.ndarray] = []
+    lit_v: List[np.ndarray] = []
     for frame in frames:
         small = frame
         if ccfg.analysis_scale != 1.0:
@@ -250,12 +301,22 @@ def estimate_cloth_color(frames: Sequence[np.ndarray], cfg: Config) -> ClothMode
         hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
         hsvs.append(hsv)
         h, s, v = cv2.split(hsv)
-        keep = (v >= ccfg.min_value) & (s >= ccfg.min_saturation)
+        lit = v >= ccfg.min_value
+        if neutral_ok:
+            lit_s.append(s[lit])
+            lit_v.append(v[lit])
+        keep = lit & (s >= ccfg.min_saturation)
         if not np.any(keep):
             continue
         h_all.append(h[keep])
         s_all.append(s[keep])
         v_all.append(v[keep])
+
+    if neutral_ok and lit_s:
+        s_pool, v_pool = np.concatenate(lit_s), np.concatenate(lit_v)
+        coloured = sum(len(x) for x in h_all)
+        if s_pool.size and coloured < 0.5 * s_pool.size:
+            return _neutral_model(s_pool, v_pool, frames, cfg)
 
     if not h_all:
         raise RuntimeError(
@@ -334,6 +395,166 @@ def largest_cloth_contour(mask: np.ndarray) -> Optional[np.ndarray]:
     return max(contours, key=cv2.contourArea)
 
 
+# --------------------------------------------------------------------------
+# From the cloth's outline to the cushion noses
+# --------------------------------------------------------------------------
+
+#: Weights of L, a, b in the colour step that marks a nose -- as elsewhere,
+#: lightness counts for less.
+_NOSE_LAB_WEIGHTS = np.array([0.45, 1.0, 1.0])
+#: How far inside the fitted edge the rays start, and their step, in inches.
+_NOSE_STEP_IN = 0.1
+#: A rail on which fewer rays than this found an edge is left where it is.
+_NOSE_MIN_AGREEING = 0.4
+
+
+def refine_to_cushion_noses(
+    table: TableModel, frames: Sequence[np.ndarray], cfg: Config
+) -> Tuple[TableModel, dict]:
+    """Move each fitted edge in to the nose of its cushion.
+
+    The calibrated outline is the outline of the *cloth*, and a table's
+    cushions are clothed too.  Lit from above, a cushion's top looks just like
+    the bed, so on the sample broadcasts the fitted long rails ran out over
+    the cushion tops, about two inches outside the noses, and the far rail
+    over the far cushion's face.  The table was then fitted 4 in too long and
+    wide, every position near those rails was off, and balls bouncing off
+    them turned round 3.3 in (long rails) and 5.7 in (far rail) from the rail
+    instead of the ball radius.
+
+    What marks a nose is its face: undercut and in shadow, a dark line seen
+    from the side and a dark band seen from in front.  So along each rail,
+    rays are walked from well inside the bed outwards, over a median of
+    several frames (so that balls and players drop out), and the edge is
+    where the colour first leaves the bed's -- at half height of the step, so
+    a thin line and a broad face are placed alike.
+
+    The step is where the nose appears in the picture.  On a rail whose face
+    the camera sees, that is the foot of the face, on the cloth.  On the rail
+    nearest the camera it is the nose itself, a ball's 63% above the cloth,
+    whose image lands on the cloth well beyond it -- 2.8 in on the sample
+    broadcasts -- so that rail is placed through the plane at nose height.
+
+    Returns the refined table (with the original outline kept as
+    ``outline_image``, which is what a later outline is compared with) and
+    what was found per rail, in inches inward.
+    """
+    tc = cfg.table
+    report: dict = {}
+    if not tc.fit_cushion_noses or not frames:
+        return table, report
+
+    lab = np.median(
+        np.stack([cv2.cvtColor(f, cv2.COLOR_BGR2Lab) for f in frames[:9]]), axis=0
+    ).astype(np.float32)
+    h, w = lab.shape[:2]
+    L, W = table.length_in, table.width_in
+
+    def sample(points_table: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        img = np.rint(table.table_to_image(points_table)).astype(np.int64)
+        ok = (img[:, 0] >= 0) & (img[:, 0] < w) & (img[:, 1] >= 0) & (img[:, 1] < h)
+        out = np.zeros((len(points_table), 3), np.float32)
+        out[ok] = lab[img[ok, 1], img[ok, 0]]
+        return out, ok
+
+    grid = np.array([[x, y] for x in np.linspace(0.15 * L, 0.85 * L, 24)
+                     for y in np.linspace(0.25 * W, 0.75 * W, 10)])
+    bed_px, ok = sample(grid)
+    if np.count_nonzero(ok) < 20:
+        return table, report
+    bed = np.median(bed_px[ok], axis=0)
+    noise = float(np.percentile(np.linalg.norm((bed_px[ok] - bed) * _NOSE_LAB_WEIGHTS, axis=1), 90))
+    step_min = max(tc.cushion_nose_min_step, 3.0 * noise)
+
+    depth_max = tc.cushion_nose_search_in
+    depths = np.arange(depth_max, -_NOSE_STEP_IN / 2, -_NOSE_STEP_IN)  # inside -> edge
+    camera = None if table.camera is None else np.asarray(table.camera["position_in"])
+    nose_h = tc.cushion_nose_height_ball_diameters * table.ball_diameter_in
+    raised = None
+    if camera is not None and table.image_size is not None:
+        from .geometry import raised_plane_homography
+
+        found = raised_plane_homography(
+            table.H_inv, table.image_to_table(table.corners_image), table.image_size, nose_h
+        )
+        if found is not None:
+            raised = np.linalg.inv(found[0])  # image -> table, at nose height
+
+    # (name, point on the rail at (along, depth), rail length, camera inside?)
+    rails = [
+        ("y=0", lambda u, d: (u, d), L, camera is None or camera[1] > 0.0),
+        ("y=W", lambda u, d: (u, W - d), L, camera is None or camera[1] < W),
+        ("x=0", lambda u, d: (d, u), W, camera is None or camera[0] > 0.0),
+        ("x=L", lambda u, d: (L - d, u), W, camera is None or camera[0] < L),
+    ]
+    offsets = {}
+    for name, at, length, sees_face in rails:
+        # Clear of the pockets, which bite the rail at both ends and, on a
+        # long rail, in the middle.
+        clear = 3.5 * table.ball_diameter_in
+        us = [u for u in np.linspace(clear, length - clear, 48)
+              if length < 1.5 * W or abs(u - length / 2.0) > clear]
+        hits = []
+        for u in us:
+            pts = np.array([at(u, d) for d in depths])
+            px, ok = sample(pts)
+            if not np.all(ok):
+                continue
+            dist = np.linalg.norm((px - bed) * _NOSE_LAB_WEIGHTS, axis=1)
+            over = np.nonzero(dist > step_min)[0]
+            if over.size == 0:
+                continue
+            first = int(over[0])
+            if first < 3:  # the bed is not bed-coloured this far in: no read
+                continue
+            # Half height of the step, between the bed and the peak just past it.
+            base = float(np.median(dist[:first]))
+            peak = float(np.max(dist[first:first + int(round(1.0 / _NOSE_STEP_IN)) + 1]))
+            half = 0.5 * (base + peak)
+            k = first
+            while k > 0 and dist[k - 1] >= half:
+                k -= 1
+            lo, hi = dist[k - 1], dist[k]
+            frac = 0.0 if hi <= lo else float(np.clip((half - lo) / (hi - lo), 0.0, 1.0))
+            hits.append(depths[k - 1] - frac * _NOSE_STEP_IN if k > 0 else depths[0])
+        if len(hits) < _NOSE_MIN_AGREEING * len(us):
+            report[name] = {"inches": 0.0, "rays": len(hits), "of": len(us), "moved": False}
+            continue
+        d = float(np.median(hits))
+        if not sees_face and raised is not None:
+            # The step is the nose seen from above and behind; find where
+            # the nose is, not where its image lands on the cloth.
+            img = table.table_to_image(np.array([at(length / 2.0, d)]))
+            nose = cv2.perspectiveTransform(img.reshape(-1, 1, 2), raised).reshape(2)
+            rail0 = np.array(at(length / 2.0, 0.0))
+            inward = np.array(at(length / 2.0, 1.0)) - rail0
+            d = float(np.dot(nose - rail0, inward))
+        d = float(np.clip(d, 0.0, depth_max))
+        spread = float(np.percentile(hits, 75) - np.percentile(hits, 25))
+        offsets[name] = d
+        report[name] = {"inches": round(d, 2), "rays": len(hits), "of": len(us),
+                        "spread_in": round(spread, 2), "moved": d > 0.0}
+
+    if not offsets:
+        return table, report
+    x0, x1 = offsets.get("x=0", 0.0), L - offsets.get("x=L", 0.0)
+    y0, y1 = offsets.get("y=0", 0.0), W - offsets.get("y=W", 0.0)
+    corners = table.table_to_image(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
+    from .geometry import order_corners
+
+    refined = TableModel(
+        corners_image=order_corners(corners),
+        length_in=table.length_in,
+        width_in=table.width_in,
+        ball_diameter_in=table.ball_diameter_in,
+        has_pockets=table.has_pockets,
+        image_size=table.image_size,
+        ball_parallax=table.ball_parallax,
+        outline_image=table.outline_image if table.outline_image is not None else table.corners_image,
+    )
+    return refined, report
+
+
 @dataclass
 class CalibrationResult:
     table: TableModel
@@ -341,6 +562,8 @@ class CalibrationResult:
     frames_used: int
     frames_attempted: int
     corner_spread_px: float
+    #: Per rail, how far in from the cloth's outline its nose was found.
+    cushion_noses: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -349,6 +572,7 @@ class CalibrationResult:
             "frames_used": self.frames_used,
             "frames_attempted": self.frames_attempted,
             "corner_spread_px": round(self.corner_spread_px, 2),
+            "cushion_noses": self.cushion_noses,
         }
 
 
@@ -392,13 +616,28 @@ def calibrate(frames: Sequence[np.ndarray], cfg: Config) -> CalibrationResult:
         ball_diameter_in=cfg.table.ball_diameter_in,
         has_pockets=not cfg.table.preset.startswith("carom"),
         image_size=(w, h),
+        ball_parallax=cfg.table.ball_parallax,
     )
+    ball_r = table.expected_ball_radius_px(tuple(table.corners_image.mean(axis=0)))
+    if ball_r < cfg.table.min_ball_radius_px:
+        # Something cloth-coloured was found, but not a table anyone could
+        # track: on grey cloth over a grey floor it was a blue banner, and
+        # every ball would have been 6 px across.  Better to say so, and ask
+        # for the corners, than to track nothing and look as if it worked.
+        raise RuntimeError(
+            "Table calibration failed: the cloth-coloured region found is too "
+            f"small to be the table (a ball there would be {2 * ball_r:.1f} px "
+            "across), so it is probably something else of that colour. Pass "
+            "--table-corners to set the four corners by hand."
+        )
+    table, noses = refine_to_cushion_noses(table, frames, cfg)
     return CalibrationResult(
         table=table,
         cloth=cloth,
         frames_used=len(quads),
         frames_attempted=len(frames),
         corner_spread_px=spread,
+        cushion_noses=noses,
     )
 
 
@@ -420,4 +659,5 @@ def table_from_corners(
         ball_diameter_in=cfg.table.ball_diameter_in,
         has_pockets=not cfg.table.preset.startswith("carom"),
         image_size=image_size,
+        ball_parallax=cfg.table.ball_parallax,
     )

@@ -636,6 +636,81 @@ def test_a_long_lived_track_still_gets_the_full_coasting_window():
 
 
 
+def test_a_ball_that_comes_back_keeps_its_identity():
+    """A ball in the pocket jaws, or behind the player for longer than its
+    coasting budget, used to die and come back as a new ball -- on albin_fedor
+    the cue ball became "#10" for the rest of the clip, after a scratch that
+    never happened."""
+    tracker, cfg = _tracker_with()
+    pos = (50.0, 25.0)
+    for i in range(60):
+        tracker.update([_detection_at(pos, cfg)], 1 / 30, i, i / 30.0)
+    ball = tracker.tracks[0]
+
+    frame = 60
+    while ball.is_alive:
+        tracker.update([], 1 / 30, frame, frame / 30.0)
+        frame += 1
+    assert ball in tracker.limbo and ball not in tracker.finished
+
+    tracker.update([_detection_at((51.0, 25.0), cfg)], 1 / 30, frame, frame / 30.0)
+    assert ball.is_alive and ball in tracker.tracks
+    assert tracker.revived == 1 and tracker.tracks_created == 1
+
+
+def test_a_ball_that_stays_gone_is_retired_after_the_window():
+    tracker, cfg = _tracker_with()
+    for i in range(60):
+        tracker.update([_detection_at((50.0, 25.0), cfg)], 1 / 30, i, i / 30.0)
+    ball = tracker.tracks[0]
+    frame = 60
+    while ball in tracker.tracks or ball in tracker.limbo:
+        tracker.update([], 1 / 30, frame, frame / 30.0)
+        frame += 1
+        assert frame < 60 + 45 + int(cfg.tracker.revive_window_s * 30) + 5
+    assert ball in tracker.finished
+
+
+def test_a_ball_is_placed_from_its_centre_not_its_silhouette_on_the_cloth():
+    """A ball's centre is a radius above the cloth, so the cloth homography
+    places it too far from the camera -- 2.4 in at the near rail and 4 in at
+    the far one on the sample broadcasts.  Filmed by the simulator's pinhole
+    camera, the recovered camera must put it back on its spot."""
+    from make_synthetic_clip import Renderer, TABLE_L, TABLE_W
+
+    renderer = Renderer(out_size=(1280, 720), camera="end")
+    corners = order_corners(np.array([
+        renderer.table_to_image(c) for c in ((0, 0), (TABLE_L, 0), (TABLE_L, TABLE_W), (0, TABLE_W))
+    ]))
+    table = TableModel(corners, length_in=TABLE_L, width_in=TABLE_W, ball_diameter_in=2.25,
+                       image_size=(1280, 720))
+    assert table.camera is not None
+
+    worst_fixed, worst_flat = 0.0, 0.0
+    for p in ((5.0, 25.0), (50.0, 10.0), (95.0, 40.0), (2.0, 2.0)):
+        truth = table.image_to_table([renderer.table_to_image(p)])[0]
+        seen = renderer.ball_to_image(p)
+        worst_fixed = max(worst_fixed, float(np.linalg.norm(table.ball_image_to_table([seen])[0] - truth)))
+        worst_flat = max(worst_flat, float(np.linalg.norm(table.image_to_table([seen])[0] - truth)))
+    assert worst_fixed < 0.15, worst_fixed
+    assert worst_flat > 1.5, "the test would not notice the correction missing"
+
+
+def test_a_hidden_ball_is_neither_a_miss_nor_a_false_positive():
+    from evaluate import evaluate
+
+    gt = {0: [("red", np.array([10.0, 10.0])), ("blue", np.array([30.0, 10.0]))]}
+    tracks = {0: [(1, np.array([10.1, 10.0])), (2, np.array([30.0, 10.1]))]}
+    hidden = {0: {"red": 1.0, "blue": 0.2}}
+    report = evaluate(gt, tracks, gt_visibility=hidden)
+    assert report["recall"] == 1.0 and report["precision"] == 1.0
+    assert report["ignored_hidden_instances"] == 1
+    # ...and missing it costs nothing either.
+    report = evaluate(gt, {0: [(1, np.array([10.1, 10.0]))]}, gt_visibility=hidden)
+    assert report["recall"] == 1.0 and report["false_negatives"] == 0
+
+
+
 # --------------------------------------------------------------------------
 # Seeing a camera cut
 # --------------------------------------------------------------------------
@@ -865,6 +940,38 @@ def test_every_frame_of_the_output_is_the_same_size():
     assert tracked.shape == idle.shape
 
 
+@pytest.mark.parametrize("camera", ["end", "side"])
+def test_the_diagram_is_a_rotation_of_the_picture_not_a_mirror(camera):
+    """Drawn in raw table coordinates, the diagram of a broadcast shot from
+    behind an end rail came out as a reflection of the picture: the balls on
+    the right of the table were at the bottom of the diagram, with the far
+    rail on the left.  Whatever the view, going round the table the same way
+    in the picture and in the diagram must agree."""
+    from billiards.render import overhead_flips
+    from make_synthetic_clip import Renderer, TABLE_L, TABLE_W
+
+    renderer = Renderer(out_size=(1280, 720), camera=camera)
+    corners = order_corners(np.array([
+        renderer.table_to_image(c) for c in ((0, 0), (TABLE_L, 0), (TABLE_L, TABLE_W), (0, TABLE_W))
+    ]))
+    table = TableModel(corners, length_in=TABLE_L, width_in=TABLE_W, ball_diameter_in=2.25,
+                       image_size=(1280, 720))
+    flip_x, flip_y = overhead_flips(table)
+
+    def diagram(p):
+        return np.array([L - p[0] if flip_x else p[0], W - p[1] if flip_y else p[1]])
+
+    def turn(u, v):  # which way round: the 2-D cross product
+        return u[0] * v[1] - u[1] * v[0]
+
+    L, W = table.length_in, table.width_in
+    a, b, c = (20.0, 10.0), (80.0, 10.0), (50.0, 40.0)
+    img = table.table_to_image([a, b, c])
+    turn_picture = turn(img[1] - img[0], img[2] - img[0])
+    turn_diagram = turn(diagram(b) - diagram(a), diagram(c) - diagram(a))
+    assert np.sign(turn_picture) == np.sign(turn_diagram)
+
+
 def test_the_diagram_can_still_be_an_inset():
     frame = _blank_table()
     pipe, cfg = _pipeline_over(frame)
@@ -873,3 +980,227 @@ def test_the_diagram_can_still_be_an_inset():
     out = pipe.renderer.draw(frame, [], [], [], hud={"frame": "0"})
     assert out.shape == frame.shape
     assert not np.array_equal(out, frame), "the inset is drawn over the picture"
+
+
+# --------------------------------------------------------------------------
+# Scene clock
+# --------------------------------------------------------------------------
+
+
+def _clock():
+    from billiards.clock import SourceClock
+
+    return SourceClock(37.5, ball_radius_in=1.125, min_moving_repeats=3)
+
+
+def _fit_for(true_k):
+    """A fit that says the balls moved exactly ``true_k`` source frames."""
+
+    def fit(intervals):
+        step = intervals[0]  # one source frame
+        return np.array([abs(dt / step - true_k) * 1.5 for dt in intervals]) + 0.02
+
+    return fit
+
+
+def test_clock_leaves_a_constant_rate_file_alone():
+    clock = _clock()
+    # Repeats while nothing moves are just a still table, not evidence.
+    for _ in range(20):
+        clock.note_repeat(moving=False)
+    dt, _ = clock.interval(2, moving=True, fit=_fit_for(1))
+    assert not clock.retimed
+    assert dt == pytest.approx(2 / 37.5)
+
+
+def test_clock_recovers_the_source_rate_from_moving_balls():
+    """25 fps content in a 37.5 fps file: every new frame is one source frame
+    whatever the slot gap, except the ones the recorder missed."""
+    clock = _clock()
+    for _ in range(3):
+        clock.note_repeat(moving=True)
+    assert clock.retimed
+
+    # 2 source frames every 3 slots; one in twelve never reaches the file, so
+    # the frame after it spans 3 slots and 2 source frames.
+    pattern = [(1, 1), (2, 1)] * 5 + [(3, 2)]
+    for _ in range(4):
+        for slots, k in pattern:
+            clock.interval(slots, moving=True, fit=_fit_for(k))
+    assert clock.source_fps == pytest.approx(25.0)
+
+    dt, k = clock.interval(2, moving=True, fit=_fit_for(1))
+    assert k == 1 and dt == pytest.approx(1 / 25.0)
+    dt, k = clock.interval(1, moving=True, fit=_fit_for(2))
+    assert k == 2 and dt == pytest.approx(2 / 25.0), "a missed source frame is seen"
+
+
+def test_a_tie_is_not_evidence():
+    """Counting ambiguous frames toward the rate is a feedback loop: the prior
+    wins every tie, and the estimate drifts toward whatever it already was."""
+    clock = _clock()
+    for _ in range(3):
+        clock.note_repeat(moving=True)
+    before = clock.evidence_frames
+    clock.interval(2, moving=True, fit=lambda intervals: np.array([0.44, 0.49, 1.4]))
+    assert clock.evidence_frames == before
+
+
+def test_the_rate_cannot_exceed_the_files_own():
+    """A file that repeats frames while balls move holds fewer source frames a
+    second than slots.  Counted decisions once read 58 fps off 25 fps content
+    in a 37.5 fps file; whatever the decisions say, the rate stays physical."""
+    clock = _clock()
+    for _ in range(3):
+        clock.note_repeat(moving=True)
+    for _ in range(40):
+        clock.interval(1, moving=True, fit=_fit_for(3))  # "three frames" every slot
+    assert clock.source_fps <= 37.5
+
+
+def test_filter_velocity_follows_a_change_of_clock():
+    """Learned at 30 fps, the velocity of content that is really 25 fps is off
+    by 30/25; re-expressed in the new clock it is right at once."""
+    kf = BallKalman((50.0, 25.0), meas_std_in=0.1)
+    for i in range(40):
+        kf.predict(1 / 30)
+        kf.update((50.0 + i * 2.0, 25.0))  # 2 in per frame: 60 in/s at 30 fps
+    before = float(kf.velocity[0])
+    kf.rescale_time(25.0 / 30.0)
+    assert float(kf.velocity[0]) == pytest.approx(before * 25.0 / 30.0)
+    assert kf.peek(1 / 25)[0] == pytest.approx(kf.position[0] + 2.0, abs=0.1)
+
+
+def test_rate_snaps_only_to_a_nearby_broadcast_standard():
+    from billiards.clock import snap_rate
+
+    assert snap_rate(29.2) == pytest.approx(29.97)
+    assert snap_rate(24.6) == pytest.approx(25.0)
+    assert snap_rate(26.1) == pytest.approx(25.0)  # the decisive-frame bias
+    assert snap_rate(27.5) == pytest.approx(27.5)
+
+
+def test_a_ball_just_struck_is_not_a_clock():
+    """Accelerating while its filter still holds the old velocity, it lands
+    further on than one source frame predicts, so "two frames" wins -- which
+    read 47 fps off 25 fps content on a clip whose evidence came mostly from
+    the break.  Only a ball whose model saw the frame coming counts."""
+    kf = BallKalman((50.0, 25.0), meas_std_in=0.2)
+    for i in range(30):
+        kf.predict(1 / 30)
+        kf.update((50.0 + i * 2.0, 25.0))  # 60 in/s, steady
+    assert kf.settled
+    kf.predict(1 / 30)
+    kf.update((50.0 + 29 * 2.0 + 8.0, 25.0))  # struck: four times the step
+    assert not kf.settled
+
+
+# --------------------------------------------------------------------------
+# Shot log wording
+# --------------------------------------------------------------------------
+
+
+def test_a_shot_reads_like_commentary():
+    from billiards.shots import Shot
+
+    shot = Shot(index=1, start_frame=0, start_t_s=0.0, end_frame=90, end_t_s=3.0,
+                opener_label="CUE", first_contact_label="2", cushions=4, potted=["2"])
+    assert shot.describe() == "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 3.0s"
+    unknown = Shot(index=2, start_frame=0, start_t_s=0.0, opener_label="CUE",
+                   first_contact_label="#5")
+    assert "hit #5 first" in unknown.describe()
+
+
+def test_potting_the_cue_ball_is_a_scratch():
+    from billiards.shots import Shot
+
+    shot = Shot(index=1, start_frame=0, start_t_s=0.0, opener_label="CUE", potted=["CUE"])
+    text = shot.describe()
+    assert "scratch" in text and "nothing potted" not in text
+
+
+# --------------------------------------------------------------------------
+# Footage unlike the sample clips
+# --------------------------------------------------------------------------
+
+
+def _grey_bed(width=320, height=180):
+    """A grey bed with a red ball and a white one on it, the rest blacked out."""
+    rng = np.random.default_rng(3)
+    img = np.zeros((height, width, 3), np.uint8)
+    img[30:150, 40:280] = (126, 124, 120)
+    img[30:150, 40:280] = np.clip(img[30:150, 40:280] + rng.normal(0, 3, (120, 240, 3)), 0, 255).astype(np.uint8)
+    import cv2
+
+    cv2.circle(img, (100, 90), 8, (40, 40, 200), -1)
+    cv2.circle(img, (200, 70), 8, (235, 238, 240), -1)
+    return img
+
+
+def test_a_grey_cloth_inside_known_corners_is_modelled_without_a_hue():
+    """Grey cloth has too little colour for the hue window, so it was taken
+    for "too grey to be cloth" and the balls' colours were measured instead.
+    Inside known corners it is modelled by being unsaturated and this bright."""
+    import cv2
+    from billiards.table import estimate_cloth_color
+
+    frames = [_grey_bed() for _ in range(3)]
+    cloth = estimate_cloth_color(frames, Config(), neutral_ok=True)
+    assert cloth.neutral
+    mask = cloth.mask(cv2.cvtColor(frames[0], cv2.COLOR_BGR2HSV))
+    assert mask[60, 60] == 255, "the cloth is cloth"
+    assert mask[90, 100] == 0, "the red ball is not"
+    assert mask[70, 200] == 0, "nor is the white one, which is unsaturated too"
+    # Without known corners it is not attempted: a grey floor would pass too.
+    coloured = estimate_cloth_color(frames, Config())
+    assert not coloured.neutral
+    assert coloured.mask(cv2.cvtColor(frames[0], cv2.COLOR_BGR2HSV))[60, 60] == 0
+
+
+def test_a_patch_too_small_to_be_the_table_is_not_taken_for_it():
+    """On grey cloth over a grey floor, the most saturated thing in view was a
+    blue banner, and a table fitted to it made every ball 6 px across."""
+    import cv2
+    from billiards.table import calibrate
+
+    frames = []
+    for _ in range(4):
+        img = np.full((360, 640, 3), 118, np.uint8)
+        cv2.rectangle(img, (20, 20), (200, 110), (170, 90, 20), -1)  # the banner
+        frames.append(img)
+    with pytest.raises(RuntimeError, match="too small to be the table"):
+        calibrate(frames, Config().apply_preset())
+
+
+def test_a_frame_that_will_not_decode_mid_file_is_skipped(monkeypatch):
+    from billiards import video
+
+    class Cap:
+        def __init__(self):
+            self.i = 0
+
+        def isOpened(self):
+            return True
+
+        def get(self, prop):
+            import cv2
+
+            return 6 if prop == cv2.CAP_PROP_FRAME_COUNT else 0
+
+        def set(self, *a):
+            pass
+
+        def read(self):
+            self.i += 1
+            if self.i > 6:
+                return False, None
+            if self.i == 3:
+                return False, None  # damaged
+            return True, np.zeros((4, 4, 3), np.uint8)
+
+        def release(self):
+            pass
+
+    monkeypatch.setattr(video, "open_capture", lambda path: Cap())
+    got = [i for i, _ in video.read_frames("clip.mp4")]
+    assert got == [0, 1, 3, 4, 5], got

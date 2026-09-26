@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
@@ -54,8 +55,39 @@ class VideoInfo:
         }
 
 
-def probe(path: Union[str, Path]) -> VideoInfo:
+def open_capture(path: Union[str, Path]) -> cv2.VideoCapture:
+    """``cv2.VideoCapture`` for a file, whatever characters its path has.
+
+    Some OpenCV builds on Windows cannot open a path with characters outside
+    the system code page -- a match titled in Vietnamese, say.  Such a file is
+    opened through its short (8.3) name instead, when Windows keeps one.
+    """
     cap = cv2.VideoCapture(str(path))
+    text = str(path)
+    if cap.isOpened() or os.name != "nt" or text.isascii():
+        return cap
+    short = _short_path(text)
+    if short and short != text:
+        alt = cv2.VideoCapture(short)
+        if alt.isOpened():
+            cap.release()
+            return alt
+    return cap
+
+
+def _short_path(path: str) -> Optional[str]:
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(1024)
+        n = ctypes.windll.kernel32.GetShortPathNameW(path, buf, len(buf))  # type: ignore[attr-defined]
+        return buf.value if 0 < n < len(buf) else None
+    except Exception:
+        return None
+
+
+def probe(path: Union[str, Path]) -> VideoInfo:
+    cap = open_capture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {path}")
     try:
@@ -84,26 +116,42 @@ def resize_to_width(frame: np.ndarray, max_width: int) -> np.ndarray:
     )
 
 
+#: Undecodable frames in a row that are skipped before a file is taken to end.
+_MAX_BAD_FRAMES = 8
+
+
 def read_frames(
     path: Union[str, Path],
     start_frame: int = 0,
     end_frame: Optional[int] = None,
     max_width: int = 0,
 ) -> Iterator[Tuple[int, np.ndarray]]:
-    """Yield ``(frame_index, bgr_frame)`` for the requested range."""
-    cap = cv2.VideoCapture(str(path))
+    """Yield ``(frame_index, bgr_frame)`` for the requested range.
+
+    A frame that will not decode in the middle of a file -- a damaged
+    download, a glitch in a recording -- is skipped rather than taken for the
+    end, up to a few in a row, while the file says there is more to come.
+    """
+    cap = open_capture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {path}")
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     try:
         if start_frame > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, float(start_frame))
         idx = start_frame
+        failures = 0
         while True:
             if end_frame is not None and idx >= end_frame:
                 break
             ok, frame = cap.read()
             if not ok:
+                if total > 0 and idx < total - 1 and failures < _MAX_BAD_FRAMES:
+                    failures += 1
+                    idx += 1
+                    continue
                 break
+            failures = 0
             yield idx, resize_to_width(frame, max_width)
             idx += 1
     finally:
@@ -128,7 +176,7 @@ def sample_frames(
     if last <= start_frame:
         last = start_frame + 1
 
-    cap = cv2.VideoCapture(str(path))
+    cap = open_capture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {path}")
 
@@ -147,7 +195,7 @@ def sample_frames(
             # pass with a stride.
             frames = []
             cap.release()
-            cap = cv2.VideoCapture(str(path))
+            cap = open_capture(path)
             stride = max(1, (last - start_frame) // max(1, count))
             idx = 0
             while len(frames) < count:
@@ -171,6 +219,7 @@ def sample_frames(
 
 
 _FOURCC_BY_SUFFIX = {
+    ".webm": "VP80",
     ".mp4": "mp4v",
     ".m4v": "mp4v",
     ".avi": "MJPG",
@@ -182,9 +231,10 @@ _FOURCC_BY_SUFFIX = {
 class VideoSink:
     """Lazily-opened writer that adopts the size of the first frame written."""
 
-    def __init__(self, path: Union[str, Path], fps: float) -> None:
+    def __init__(self, path: Union[str, Path], fps: float, fourcc: Optional[str] = None) -> None:
         self.path = Path(path)
         self.fps = float(fps) if fps and fps > 0 else 30.0
+        self.fourcc = fourcc
         self._writer: Optional[cv2.VideoWriter] = None
         self._size: Optional[Tuple[int, int]] = None
         self.frames_written = 0
@@ -193,7 +243,7 @@ class VideoSink:
         h, w = frame.shape[:2]
         if self._writer is None:
             self._size = (w, h)
-            fourcc_str = _FOURCC_BY_SUFFIX.get(self.path.suffix.lower(), "mp4v")
+            fourcc_str = self.fourcc or _FOURCC_BY_SUFFIX.get(self.path.suffix.lower(), "mp4v")
             fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._writer = cv2.VideoWriter(str(self.path), fourcc, self.fps, self._size)
@@ -219,6 +269,128 @@ class VideoSink:
         self.close()
 
 
+class FfmpegSink:
+    """H.264 through the ``ffmpeg`` that ships with ``imageio-ffmpeg``.
+
+    OpenCV's own writers cannot make a file a browser will play on most
+    installs: its FFmpeg is built without an H.264 encoder, Windows' Media
+    Foundation one ignores the quality setting (~50 Mbit/s), and VP8 writes at
+    ~40 fps.  This pipes raw frames to a real encoder instead, at ~180 fps.
+    """
+
+    def __init__(self, path: Union[str, Path], fps: float, crf: int = 20) -> None:
+        self.path = Path(path)
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self.crf = int(crf)
+        self._proc: Optional[Any] = None
+        self._size: Optional[Tuple[int, int]] = None
+        self.frames_written = 0
+
+    @staticmethod
+    def available() -> bool:
+        return _ffmpeg_exe() is not None
+
+    def write(self, frame: np.ndarray) -> None:
+        import subprocess
+
+        h, w = frame.shape[:2]
+        if self._proc is None:
+            # yuv420p needs even dimensions.
+            self._size = (w - w % 2, h - h % 2)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            cmd = [
+                _ffmpeg_exe(), "-y", "-loglevel", "error",
+                "-f", "rawvideo", "-pix_fmt", "bgr24",
+                "-s", f"{self._size[0]}x{self._size[1]}", "-r", f"{self.fps:.6f}", "-i", "-",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", str(self.crf),
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(self.path),
+            ]
+            self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        if (w, h) != self._size:
+            sw, sh = self._size
+            if 0 <= w - sw <= 1 and 0 <= h - sh <= 1:
+                frame = frame[:sh, :sw]  # the odd pixel yuv420p cannot take
+            else:
+                frame = cv2.resize(frame, self._size, interpolation=cv2.INTER_AREA)
+        assert self._proc is not None and self._proc.stdin is not None
+        self._proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+        self.frames_written += 1
+
+    def close(self) -> None:
+        if self._proc is not None:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+            self._proc.wait()
+            self._proc = None
+
+    def __enter__(self) -> "FfmpegSink":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
+
+
+def _ffmpeg_exe() -> Optional[str]:
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+_BROWSER_CODEC: Optional[Tuple[str, str]] = None
+
+
+def browser_codec() -> Tuple[str, str]:
+    """(writer, file suffix) for video a web browser can play, best first.
+
+    ``ffmpeg`` (H.264 via imageio-ffmpeg), then OpenCV's ``avc1`` (H.264, on
+    Windows through Media Foundation), then ``VP80`` (WebM), each tried once by
+    writing and reading back a few frames.  ``mp4v`` if none work -- a browser
+    will not play that, and the app shows such a video frame by frame instead.
+    """
+    global _BROWSER_CODEC
+    if _BROWSER_CODEC is not None:
+        return _BROWSER_CODEC
+    if FfmpegSink.available():
+        _BROWSER_CODEC = ("ffmpeg", ".mp4")
+        return _BROWSER_CODEC
+    import tempfile
+
+    for fourcc, suffix, reads_as in (("avc1", ".mp4", "h264"), ("VP80", ".webm", "vp80")):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / f"probe{suffix}")
+            try:
+                writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc), 25.0, (64, 48))
+                ok = writer.isOpened()
+                if ok:
+                    for i in range(3):
+                        writer.write(np.full((48, 64, 3), 40 * i, np.uint8))
+                writer.release()
+                if not ok:
+                    continue
+                cap = cv2.VideoCapture(path)
+                code = int(cap.get(cv2.CAP_PROP_FOURCC))
+                cap.release()
+                got = "".join(chr((code >> (8 * k)) & 0xFF) for k in range(4)).lower()
+                if got == reads_as:
+                    _BROWSER_CODEC = (fourcc, suffix)
+                    return _BROWSER_CODEC
+            except Exception:
+                continue
+    _BROWSER_CODEC = ("mp4v", ".mp4")
+    return _BROWSER_CODEC
+
+
+def open_sink(path: Union[str, Path], fps: float, writer: Optional[str] = None) -> Any:
+    """A video sink for ``path``: ``writer`` is a fourcc, ``"ffmpeg"``, or None
+    for whatever the suffix implies (``VideoSink``'s table)."""
+    if writer == "ffmpeg":
+        return FfmpegSink(path, fps)
+    return VideoSink(path, fps, fourcc=writer)
+
+
 class TrackCsvWriter:
     """Streaming per-frame track export.
 
@@ -228,7 +400,7 @@ class TrackCsvWriter:
     """
 
     COLUMNS = [
-        "frame", "t_s", "track_id", "label", "ball_type", "state", "observed",
+        "frame", "t_s", "track_id", "label", "number", "ball_type", "state", "observed",
         "x_in", "y_in", "x_px", "y_px", "vx_in_s", "vy_in_s", "speed_in_s",
     ]
 
@@ -251,6 +423,7 @@ class TrackCsvWriter:
                     round(t_s, 4),
                     track.track_id,
                     track.label,
+                    "" if track.number is None else track.number,
                     track.ball_type,
                     track.state.value,
                     int(track.time_since_update == 0),

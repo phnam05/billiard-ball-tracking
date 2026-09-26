@@ -1,6 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 Helper functions for transforming the standard camera view to an overhead cam
+
+Created on Sun Jul 12 21:32:26 2015
+
+@author: Stuart Grieve
+
+(Originally from Stuart Grieve's "PoolTable" project, 2015.  This author
+header was removed when the file was adapted for v1 in May 2024 and has been
+restored; see legacy/README.md.)
 """
 
 import cv2

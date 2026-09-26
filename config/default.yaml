@@ -5,6 +5,7 @@ table:
   ball_diameter_in: 2.25
   overhead_px_per_inch: 8.0
   calibration_frames: 25
+  min_ball_radius_px: 3.0
   recalibration_tolerance: 0.06
   recalibration_interval: 150
   view_change_coverage_ratio: 0.55
@@ -14,10 +15,19 @@ table:
   repeat_frame_level: 0.125
   repeat_frame_ball_areas: 0.02
   repeat_frame_max_run: 4
+  source_clock: true
+  source_clock_min_moving_repeats: 3
+  source_clock_max_skip: 3
+  source_clock_min_step_ball_radii: 0.5
   recovery_frames: 5
   recovery_max_spread_px: 12.0
   min_bed_coverage: 0.72
   bed_margin_ball_diameters: 0.35
+  fit_cushion_noses: true
+  cushion_nose_search_in: 10.0
+  cushion_nose_min_step: 10.0
+  cushion_nose_height_ball_diameters: 0.635
+  ball_parallax: true
 cloth:
   hue_sigmas: 4.0
   sat_sigmas: 4.5
@@ -45,10 +55,13 @@ detector:
   peak_separation_ball_radii: 1.35
   edge_margin_ball_diameters: 0.0
   pocket_exclusion_ball_diameters: 1.45
+  search_raised_bed: false
+  raised_band_outside_fraction: 0.55
   split_peak_min_ratio: 0.55
   split_peak_max_ratio: 1.75
   cluster_core_coverage_min: 0.85
   cluster_rim_contrast_min: 55.0
+  cluster_open_rim_contrast_min: 30.0
   rim_contrast_min: 12.0
   max_detections: 40
 tracker:
@@ -66,6 +79,8 @@ tracker:
   max_age_tentative: 3
   coast_frames_per_hit: 1.0
   stationary_speed_in_s: 4.0
+  revive_window_s: 1.5
+  revive_distance_ball_diameters: 3.0
 events:
   contact_distance_ball_diameters: 1.25
   min_closing_speed_in_s: 6.0
@@ -73,6 +88,19 @@ events:
   cushion_proximity_ball_radii: 1.25
   pocket_radius_ball_diameters: 1.9
   refractory_s: 0.18
+  cushion_contact_tolerance_ball_radii: 4.5
+  cushion_pocket_clearance_ball_diameters: 1.2
+  cushion_approach_max_age_s: 0.6
+  kink_pair_window_s: 0.08
+  kink_pair_distance_ball_diameters: 1.5
+  kink_refractory_s: 0.1
+balls:
+  enabled: true
+  ball_set: auto
+  numbers: 1-15
+  max_cost: 3.0
+  stickiness: 0.6
+  min_colour_samples: 4
 render:
   draw_trajectories: true
   draw_ids: true

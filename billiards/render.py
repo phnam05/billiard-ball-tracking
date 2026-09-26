@@ -38,12 +38,58 @@ def _contrast_colour(bgr: Sequence[int]) -> Tuple[int, int, int]:
     return (20, 20, 20) if luma > 140 else (245, 245, 245)
 
 
+def overhead_flips(table: TableModel) -> Tuple[bool, bool]:
+    """Which table axes the top-down diagram mirrors, so it matches the camera.
+
+    Table coordinates are laid out on the diagram with the long axis across,
+    but which corner is the origin is an accident of calibration.  Drawn as-is,
+    the diagram of a broadcast shot from behind an end rail came out as a
+    *reflection* of the picture above it: the far rail on the left and the
+    right-hand balls at the bottom, so every ball sat on the wrong side of the
+    table from where the viewer could see it.  A rotation is easy to read
+    across; a mirror image is not.
+
+    So of the four ways to lay the table down with its long axis across, keep
+    the ones that are a rotation of the camera view, and of those the one
+    turned least.  When two are turned equally -- a camera looking down the
+    table, 90 degrees either way -- the far end goes on the right, so the
+    diagram reads away from the viewer the way the picture does upwards.
+    """
+    L, W = table.length_in, table.width_in
+    centre = np.array([L / 2.0, W / 2.0])
+    step = 0.1 * min(L, W)
+    img = table.table_to_image(
+        np.array([centre, centre + (step, 0.0), centre + (0.0, step)])
+    )
+    # Image directions of table +x and +y, as the columns of E.
+    E = np.column_stack([img[1] - img[0], img[2] - img[0]])
+    if not np.all(np.isfinite(E)) or abs(np.linalg.det(E)) < 1e-9:
+        return False, False
+    E_inv = np.linalg.inv(E)
+
+    best = None
+    for flip_x in (False, True):
+        for flip_y in (False, True):
+            # image -> diagram, as a linear map at the centre of the table.
+            A = np.diag([-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0]) @ E_inv
+            if np.linalg.det(A) <= 0:
+                continue  # a reflection
+            angle = float(np.degrees(np.arctan2(A[1, 0], A[0, 0])))
+            # Least turned first; at a tie, "up in the picture" goes right
+            # (+90 degrees, clockwise on screen) rather than left.
+            key = (round(abs(angle) / 5.0), -angle)
+            if best is None or key < best[0]:
+                best = (key, (flip_x, flip_y))
+    return best[1] if best else (False, False)
+
+
 class Renderer:
     def __init__(self, cfg: Config, table: TableModel, cloth: Optional[ClothModel] = None) -> None:
         self.cfg = cfg
         self.table = table
         self.cloth = cloth
         self._cloth_bgr = self._cloth_display_colour()
+        self._flip_x, self._flip_y = overhead_flips(table)
 
     def _cloth_display_colour(self) -> Tuple[int, int, int]:
         if self.cloth is None:
@@ -227,7 +273,7 @@ class Renderer:
         r = self.cfg.render
         for track in tracks:
             pos = track.kf.position
-            img_pt = self.table.table_to_image([tuple(pos)])[0]
+            img_pt = self.table.ball_table_to_image([tuple(pos)])[0]
             centre = (int(round(img_pt[0])), int(round(img_pt[1])))
             radius = max(3, int(round(self.table.expected_ball_radius_px(tuple(img_pt)))))
             colour = track.signature.bgr
@@ -336,8 +382,12 @@ class Renderer:
         cv2.rectangle(img, (pad, pad), (w - pad, h - pad), self._cloth_bgr, -1)
         cv2.rectangle(img, (pad, pad), (w - pad, h - pad), (200, 200, 200), 1)
 
+        flip_x, flip_y = self._flip_x, self._flip_y
+
         def to_px(p: Sequence[float]) -> Tuple[int, int]:
-            return (int(round(pad + p[0] * ppi)), int(round(pad + p[1] * ppi)))
+            x = L - p[0] if flip_x else p[0]
+            y = W - p[1] if flip_y else p[1]
+            return (int(round(pad + x * ppi)), int(round(pad + y * ppi)))
 
         # Pockets
         pocket_r = int(round(self.table.ball_diameter_in * ppi * 0.85))
@@ -345,8 +395,8 @@ class Renderer:
             cv2.circle(img, to_px(pk), pocket_r, (12, 12, 12), -1, cv2.LINE_AA)
 
         # Head string and foot spot, useful landmarks for reading a break.
-        head_x = int(round(pad + (L * 0.25) * ppi))
-        cv2.line(img, (head_x, pad), (head_x, h - pad), (190, 190, 190), 1, cv2.LINE_AA)
+        cv2.line(img, to_px((L * 0.25, 0.0)), to_px((L * 0.25, W)), (190, 190, 190), 1,
+                 cv2.LINE_AA)
         cv2.circle(img, to_px((L * 0.75, W / 2.0)), 2, (220, 220, 220), -1, cv2.LINE_AA)
 
         ball_r = max(2, int(round(self.table.ball_radius_in * ppi)))

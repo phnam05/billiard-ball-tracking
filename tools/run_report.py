@@ -53,35 +53,48 @@ LOG_PATH = ROOT / "reports" / "run-log.json"
 #: The clips in the repo and what is actually in them.  This is the only ground
 #: truth they have, and it was read off the broadcast's own rack graphic --
 #: which ball numbers it still shows, and which one disappears -- rather than
-#: guessed from the tracker's output.  ``tracks_reported`` above
-#: ``balls_visible`` means phantoms; ``pot`` counts away from ``real_pots``
-#: mean phantom or missed pots.
+#: guessed from the tracker's output -- and then checked against the frames
+#: themselves, because the graphic is operated by hand and lags the table by
+#: seconds.  ``tracks_reported`` above ``balls_visible`` means phantoms; a
+#: ``pot`` count away from ``detectable_pots`` means phantom or missed pots.
+#: ``real_pots`` can be higher: a ball already sitting in the pocket jaws is
+#: inside the detector's pocket-exclusion zone, so it is never tracked and its
+#: pot cannot be seen.
 SAMPLE_CLIPS: Dict[str, Dict[str, Any]] = {
     "fedor_shot": {
         "video": "fedor_shot.mp4",
         "balls_visible": 8,
         "real_pots": 1,
+        "detectable_pots": 1,
         "notes": "Rack graphic shows 2,3,4,6,7,8,9 -- seven objects plus the "
                  "cue. One shot: the cue ball runs the length of the table, "
-                 "hits the blue ball into the far corner, then comes off the "
-                 "top rail and settles. The clip cuts to another angle at the "
-                 "very end.",
+                 "hits the blue 2-ball into the near-right corner, then comes "
+                 "off several rails and settles. The clip cuts to another "
+                 "angle at the very end.",
     },
     "albin_fedor": {
         "video": "albin_fedor.mp4",
         "balls_visible": 7,
-        "real_pots": 1,
-        "notes": "Rack graphic shows 4,5,6,7,8,9 -- six objects plus the cue "
-                 "-- and loses the 4 at frame 157. That ball spends the whole "
-                 "clip sitting in the bottom-left pocket jaw, which is inside "
-                 "the detector's pocket-exclusion zone, so it is never "
-                 "tracked and its pot cannot be reported: 0 is the right "
-                 "answer here, not 1. Any pot this clip reports is a phantom.",
+        "real_pots": 2,
+        "detectable_pots": 1,
+        "notes": "Two pots, checked frame by frame. (1) The pink 4-ball sits "
+                 "in the near-left pocket jaws from the start and the cue ball "
+                 "knocks it in at about frame 155; it is inside the pocket-"
+                 "exclusion zone, so it is never tracked and this pot cannot "
+                 "be reported. (2) The purple 5-ball is struck at about frame "
+                 "555 and drops into the far-left corner at frame 566-568; "
+                 "this one is fully visible and should be reported. The rack "
+                 "graphic lags both: it drops the 4 somewhere between frames "
+                 "200 and 400, and only starts fading the 5 at frame 750. "
+                 "(Until 23 Sep 2026 this entry said the clip had one pot, "
+                 "untrackable, so any reported pot was a phantom -- wrong: the "
+                 "graphic had been read without checking the table.)",
     },
     "fedor_jump": {
         "video": "fedor_jump.mp4",
         "balls_visible": 9,
         "real_pots": 0,
+        "detectable_pots": 0,
         "notes": "Rack graphic shows 2,3,4,5,6,7,8,9 throughout -- eight "
                  "objects plus the cue, and nothing is potted.",
     },
@@ -166,6 +179,14 @@ def noise_metrics(csv_path: Path, stationary_speed_in_s: float) -> Dict[str, Any
 # --------------------------------------------------------------------------
 
 
+def _display_path(path: Path) -> str:
+    """Repo-relative when inside the repo, absolute otherwise (``--out-dir``)."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
 def measure_clip(
     name: str, spec: Dict[str, Any], out_dir: Path, render: bool = True
 ) -> Dict[str, Any]:
@@ -204,13 +225,15 @@ def measure_clip(
             written.append(preview_path)
 
     record: Dict[str, Any] = {
-        "written": [str(p.relative_to(ROOT)) for p in written],
+        "written": [_display_path(p) for p in written],
         "balls_visible": spec["balls_visible"],
         "real_pots": spec["real_pots"],
+        "detectable_pots": spec["detectable_pots"],
         "frames": summary["frames_processed"],
         # ``.get``, so the tool can also be pointed at an older checkout to
         # produce the "before" entry for a comparison.
         "frames_repeated": summary.get("frames_repeated"),
+        "clock": summary.get("clock"),
         "frames_view_lost": summary["frames_view_lost"],
         "recalibrations": summary["recalibrations"],
         "tracks_created": summary["tracks_created"],
@@ -222,36 +245,69 @@ def measure_clip(
     return record
 
 
-def measure_ground_truth(out_dir: Path, render: bool = True) -> Dict[str, Any]:
+#: The second synthetic clip: the same break, captured the way the sample
+#: broadcasts evidently were -- 25 fps content grabbed by a 37.5 fps recorder
+#: that repeats frames, receives them late and misses about one in eight.
+#: Its ground truth is what shows whether the tracker's clock is right.
+RETIMED_CAPTURE = ["--fps", "25", "--container-fps", "37.5",
+                   "--drop-rate", "0.12", "--capture-jitter", "0.6"]
+
+
+def measure_ground_truth(
+    out_dir: Path, render: bool = True, retimed: bool = False
+) -> Dict[str, Any]:
     """The accuracy side, so a noise fix that cost accuracy cannot hide."""
     sys.path.insert(0, str(ROOT / "tools"))
-    from evaluate import evaluate, load_ground_truth, load_tracks  # noqa: E402
+    from evaluate import (  # noqa: E402
+        evaluate, evaluate_events, load_ground_truth, load_speeds, load_tracks,
+        load_visibility,
+    )
 
-    video = out_dir / "synthetic_break.mp4"
-    gt = out_dir / "synthetic_gt.csv"
-    tracks = out_dir / "synthetic_tracks.csv"
+    stem = "synthetic_retimed" if retimed else "synthetic"
+    video = out_dir / f"{stem}_break.mp4"
+    gt = out_dir / f"{stem}_gt.csv"
+    events_gt = out_dir / f"{stem}_events.json"
+    tracks = out_dir / f"{stem}_tracks.csv"
     subprocess.run(
         [sys.executable, str(ROOT / "tools" / "make_synthetic_clip.py"),
-         "--out", str(video), "--ground-truth", str(gt)],
+         "--out", str(video), "--ground-truth", str(gt), "--events", str(events_gt)]
+        + (RETIMED_CAPTURE if retimed else []),
         check=True, capture_output=True,
     )
 
-    run(
+    summary = run(
         Config().apply_preset(),
         RunOptions(
             video=str(video),
-            output=str(out_dir / "synthetic_tracked.mp4") if render else None,
+            output=str(out_dir / f"{stem}_tracked.mp4") if render else None,
             export_csv=str(tracks),
             progress_every=0,
         ),
     )
-    report = evaluate(load_ground_truth(gt), load_tracks(tracks), gate_in=2.25)
+    report = evaluate(
+        load_ground_truth(gt), load_tracks(tracks), gate_in=2.25,
+        gt_speeds=load_speeds(gt, "ball"), track_speeds=load_speeds(tracks, "track_id"),
+        gt_visibility=load_visibility(gt),
+    )
+    events = evaluate_events(
+        json.loads(events_gt.read_text(encoding="utf-8")),
+        summary["event_log"],
+        fps=float(summary["video"]["fps"]),
+    )
+    speed = report.get("speed_error") or {}
     return {
         "recall": round(report["recall"], 4),
         "precision": round(report["precision"], 4),
         "mota": round(report["mota"], 4),
         "id_switches": report["id_switches"],
         "position_error_in_median": round(report["position_error_in"]["median"], 3),
+        "speed_error_median_relative": speed.get("median_relative"),
+        "speed_error_p95_in_s": speed.get("p95_in_s"),
+        "events_found": {
+            kind: f"{e['matched']}/{e['true']} (+{e['false_positives']} false)"
+            for kind, e in events.items()
+        },
+        "clock": summary.get("clock"),
     }
 
 
@@ -306,6 +362,7 @@ def amend(log: Dict[str, Any], issues: Sequence[str]) -> None:
             if spec and "skipped" not in clip:
                 clip["balls_visible"] = spec["balls_visible"]
                 clip["real_pots"] = spec["real_pots"]
+                clip["detectable_pots"] = spec["detectable_pots"]
 
     entry = log["runs"][-1]
     for issue in issues:
@@ -322,12 +379,24 @@ def print_log(log: Dict[str, Any]) -> None:
     for entry in log["runs"]:
         print(f"\n=== {entry['id']}  ({entry['commit'] or '?'}{', dirty tree' if entry.get('dirty') else ''})")
         print(f"    {entry['note']}")
-        gt = entry.get("ground_truth")
-        if gt:
-            print(
-                "    ground truth: recall {recall} / precision {precision} / "
-                "MOTA {mota} / {id_switches} id switches".format(**gt)
+        for key, title in (("ground_truth", "ground truth"),
+                           ("ground_truth_retimed", "retimed truth")):
+            gt = entry.get(key)
+            if not gt:
+                continue
+            line = (
+                f"    {title}: recall {gt['recall']} / precision {gt['precision']} / "
+                f"MOTA {gt['mota']} / {gt['id_switches']} id switches"
             )
+            if gt.get("speed_error_median_relative") is not None:
+                line += (
+                    f" / speed error {100 * gt['speed_error_median_relative']:.1f}%"
+                    f" (p95 {gt['speed_error_p95_in_s']} in/s)"
+                )
+            print(line)
+            if gt.get("events_found"):
+                print("      events found: " + ", ".join(
+                    f"{k} {v}" for k, v in gt["events_found"].items()))
         for name, clip in entry["clips"].items():
             if "skipped" in clip:
                 print(f"    {name:<14} skipped: {clip['skipped']}")
@@ -343,8 +412,8 @@ def print_log(log: Dict[str, Any]) -> None:
                 f"short {clip['short_tracks']}"
             )
             pots = clip["events"].get("pot", 0)
-            real = clip.get("real_pots")
-            flag = "" if real is None or pots == real else f"  (real pots: {real})"
+            real = clip.get("detectable_pots", clip.get("real_pots"))
+            flag = "" if real is None or pots == real else f"  (detectable pots: {real})"
             print(f"    {'':<14} {clip['events']}{flag}  {clip['shots']}")
         for issue in entry.get("open_issues", []):
             print(f"      - still open: {issue}")
@@ -430,6 +499,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.ground_truth:
         print("[report] synthetic ground truth ...", flush=True)
         entry["ground_truth"] = measure_ground_truth(out_dir, render)
+        print("[report] synthetic ground truth, retimed like a broadcast ...", flush=True)
+        entry["ground_truth_retimed"] = measure_ground_truth(out_dir, render, retimed=True)
 
     log.setdefault("metrics", METRICS_MEANING).update(METRICS_MEANING)
     log["runs"].append(entry)
@@ -444,7 +515,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if written:
         print("[report] rewrote, watch these:")
         for path in sorted(written, key=lambda p: (not p.endswith(".mp4"), p)):
-            full = ROOT / path
+            full = Path(path) if Path(path).is_absolute() else ROOT / path
             stamp = datetime.fromtimestamp(full.stat().st_mtime).strftime("%H:%M:%S")
             print(f"           {stamp}  {path}")
     elif render:
