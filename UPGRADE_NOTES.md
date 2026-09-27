@@ -528,7 +528,9 @@ billiards/
   video.py       input, output, CSV/JSON export
   pipeline.py    orchestration, camera-cut handling, whole-video driver
   cli.py         command line interface
-  app/           the web app: library, set-up, runs, results, live (§12.2-12.3)
+  fetch.py       a video from a link: look it up, download the part wanted (§13)
+  app/           the web app: library, set-up, runs, results, live (§12.2-12.3),
+                 links (downloads.py, §13)
 tools/
   make_synthetic_clip.py   physics simulator, pinhole renderer, ground truth
                            (positions, speeds, visibility, every event)
@@ -538,7 +540,7 @@ tools/
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
 results/         rewritten by run_report.py; annotated video + data per clip
-tests/           131 tests
+tests/           149 tests
 ```
 
 `evaluate.py` and `run_report.py` answer different questions, and both are
@@ -841,3 +843,91 @@ Three fixes came out of it:
   eight in a row, instead of ending the run. Paths with characters outside the
   system code page are opened through their Windows short name on OpenCV
   builds that cannot open them directly.
+
+---
+
+## 13. Fourth pass (28 Sep 2026): a YouTube link, a few minutes of it
+
+The user wanted to paste a YouTube link, a match's highlights say, and track
+from that, instead of live tracking. Their example was the final of the 2026
+WPA Men's 10-Ball World Championship: 61 min 23 s, 720p/1080p at 60 fps.
+They asked for a way to pick a few minutes of it, and for an estimate of how
+long tracking would take.
+
+### 13.1 What was measured first
+
+All on the work laptop, on 20:00–24:00 of that video (720p, 60 fps, 14,401
+frames, 32 camera changes, 781 frames with the table out of view, 6,628 frames
+that repeat the one before):
+
+| Step | Time | Rate |
+|---|---|---|
+| Look the link up (`yt-dlp -J`, Node.js as the JS runtime) | 3.1 s | |
+| Download the 4-minute part (HLS, 22.9 MB) | 17 s | 14× real time |
+| Track it in the app (ffmpeg writer, nothing drawn below the picture) | 407 s | 35.4 fps |
+| Track it with `track -o --no-overhead` (OpenCV `mp4v` writer) | 494 s | 29.2 fps |
+| Track it with `track -o` (top-down diagram drawn below every frame) | 674 s | 21.5 fps |
+| Its first minute alone, in the app (22% close-ups) | 84 s | 42.9 fps |
+
+So the whole 61 minutes (220,980 frames) would take **about 1 h 45 min in the
+app**, 2 h 5 min with `-o --no-overhead`, and 2 h 50 min with `-o`. A 3–5
+minute part takes 5–8 minutes in the app.
+
+✏️ The first figure given for the hour, 2 h 50 min, came from the `-o` run.
+It is the command line's figure, not the app's; the app was timed separately
+through its own run code once the two disagreed.
+
+Tracking works on a highlight reel. The table was found again after each of
+the 32 cuts, on the end-rail camera and on the overhead one, and tracking
+paused on close-ups. But every cut starts the tracks over, so the same ball
+is counted again and again: 20 "balls" on a 10-ball table in one minute.
+
+### 13.2 How — `billiards/fetch.py`, `billiards/app/downloads.py`
+
+* **yt-dlp runs as a separate process** (`python -m yt_dlp`), not imported.
+  That way a download can be stopped together with the `ffmpeg` it starts
+  (`taskkill /T` on Windows, a process group elsewhere), and a site change
+  breaks one download, not the app. It is optional; without it the app says
+  `pip install yt-dlp`.
+* **720p, H.264, video only.** The tracker works at 1280 px wide, so a bigger
+  picture costs download and decoding time for nothing. OpenCV decodes H.264
+  everywhere, which is not true of AV1. The tracker never listens.
+* **A part comes from the streamed (HLS) copy.** Reading part of YouTube's
+  direct file through ffmpeg was refused (HTTP 403); the HLS copy of the same
+  720p60 video worked. A whole video uses the direct file.
+* **Node.js is passed as yt-dlp's JavaScript runtime** when Deno is missing.
+  Without one, yt-dlp warned that YouTube formats may be missing.
+* `ffmpeg` (needed for a part) is the one on the PATH, else the one
+  `imageio-ffmpeg` ships. Progress is read from ffmpeg's `time=` lines, which
+  end in a carriage return, or from yt-dlp's `[download] n%`.
+* The file is written to `downloads/.incoming/` and moved into `downloads/`
+  when complete, so the library never lists half a video. The name keeps the
+  title, the video id and the part: `… - d5TyZPetBkA (20.00-25.00).mp4`.
+* Downloads run one at a time. A finished one is added to the library, its
+  game saved as the video's setting, and it is queued for tracking.
+  Playlists, channels and live streams are refused with a reason.
+
+### 13.3 The estimate is a range
+
+It is frames ÷ tracking rate. The rate depends on the computer, on the
+output (above), and on the footage: frames with the table out of view skip
+detection and tracking, so a minute of close-ups ran at 42.9 fps against 35.4
+for the four minutes around it.
+
+❌ The first version used the median of this computer's recent runs. After
+that one fast minute it put the whole hour at 1 h 25 min.
+
+Now the page shows the fastest to the slowest of the last 5 runs (runs under
+300 frames and live runs are left out). Until there are 3 runs, 35.4 fps
+(`fetch.TYPICAL_PROCESSING_FPS`) is one of them. The command line has no run
+history, so it uses the measured rate for its own output: 21.5 with the
+diagram drawn in, 29.2 without it, 35.4 with no video written.
+
+### 13.4 Not done
+
+* Tracks do not survive a camera cut, so a highlight reel lists many more
+  balls than the table has (13.1).
+* Only YouTube was tried. Other sites that yt-dlp reads should work, but are
+  untested.
+* The other computer needs `pip install "yt-dlp[default]"`, and Node.js or
+  Deno for YouTube.

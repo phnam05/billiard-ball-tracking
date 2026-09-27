@@ -36,6 +36,18 @@ def _parse_corners(text: Optional[str]) -> Optional[List[List[float]]]:
     return [nums[i : i + 2] for i in range(0, 8, 2)]
 
 
+def _clock(text: str) -> float:
+    from .fetch import parse_clock
+
+    try:
+        value = parse_clock(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc))
+    if value is None:
+        raise argparse.ArgumentTypeError("give a time")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="billiards",
@@ -46,7 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- track -------------------------------------------------------------
     t = sub.add_parser("track", help="track a video (default command)")
-    t.add_argument("video", help="input video file")
+    t.add_argument("video", help="input video file, or a link (YouTube, ...): only the part "
+                                 "from --start to --end is downloaded")
     t.add_argument("-o", "--output", help="annotated output video (.mp4/.avi)")
     t.add_argument("--csv", dest="export_csv", help="per-frame track positions")
     t.add_argument("--json", dest="export_json", help="run summary and event log")
@@ -54,9 +67,18 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--debug", action="store_true", help="also show the detection mask")
     t.add_argument("-c", "--config", help="YAML/JSON config file")
     t.add_argument("--preset", choices=sorted(TABLE_PRESETS), help="table preset")
-    t.add_argument("--start", type=float, default=0.0, help="start time, seconds")
-    t.add_argument("--end", type=float, help="end time, seconds")
+    t.add_argument("--start", type=_clock, default=0.0, help="start time: seconds, m:ss or h:mm:ss")
+    t.add_argument("--end", type=_clock, help="end time: seconds, m:ss or h:mm:ss")
+    t.add_argument(
+        "--download-to", default=str(Path("billiards-workspace") / "downloads"),
+        help="where a link's video is saved (the app lists this folder)",
+    )
     t.add_argument("--max-width", type=int, help="downscale input to this width")
+    t.add_argument(
+        "--numbers",
+        help="the balls in play: 1-15 (8-ball, the default), 1-9, 1-10; a link's title "
+             "that names the game sets it",
+    )
     t.add_argument(
         "--table-corners",
         help="override auto table detection: x1,y1,x2,y2,x3,y3,x4,y4 in pixels",
@@ -133,6 +155,11 @@ def _load_config(args: argparse.Namespace) -> Config:
         cfg.apply_preset()
     if getattr(args, "max_width", None):
         cfg.max_frame_width = args.max_width
+    if getattr(args, "numbers", None):
+        from .balls import parse_numbers
+
+        parse_numbers(args.numbers)  # a bad value fails here, not mid-run
+        cfg.balls.numbers = args.numbers
     if getattr(args, "no_overhead", False):
         cfg.render.overhead_panel = False
     if getattr(args, "overhead_inset", False):
@@ -149,7 +176,55 @@ def _time_to_frames(cfg: Config, video: str, start_s: float, end_s: Optional[flo
     return start, end, info
 
 
+def _fetch_link(args: argparse.Namespace) -> None:
+    """Download the part of a linked video wanted, and track that file."""
+    from . import fetch
+
+    quiet = args.quiet
+    say = (lambda msg: None) if quiet else _log
+    say(f"looking up {args.video}")
+    info = fetch.look_up(args.video)
+    duration = info.get("duration_s")
+    start = args.start or None
+    end = args.end
+    part = (end if end is not None else duration or 0.0) - (start or 0.0)
+    say(f"{info['title']} ({fetch.clock_label(duration) if duration else 'length unknown'}, "
+        f"{info.get('height') or '?'}p, {info['fps']:g} fps)")
+    # Drawing the diagram into -o costs more than the tracking; see fetch.
+    rate = fetch.TYPICAL_PROCESSING_FPS
+    if args.output:
+        rate = fetch.TYPICAL_PROCESSING_FPS_VIDEO if args.no_overhead else fetch.TYPICAL_PROCESSING_FPS_DIAGRAM
+    if duration:
+        whole = fetch.estimate_tracking_s(duration, info["fps"], rate)
+        say(f"tracking all of it would take up to about {fetch.about(whole)}")
+    if part > 0:
+        est = fetch.estimate_tracking_s(part, info["fps"], rate)
+        span = f"{fetch.clock_label(start or 0)}-{fetch.clock_label(end) if end is not None else 'end'}"
+        say(f"downloading {span} ({fetch.about(part)}); tracking it should take up to about "
+            f"{fetch.about(est)} (less if it is mostly close-ups)")
+    if duration and end is None and not start and duration > fetch.LONG_VIDEO_S:
+        say("tip: --start and --end pick a part, e.g. --start 20:00 --end 25:00")
+
+    last = [-1]
+
+    def progress(fraction, text):
+        pct = int(100 * (fraction or 0))
+        if not quiet and pct // 10 != last[0] // 10:
+            last[0] = pct
+            _log(f"download {pct}%")
+
+    path = fetch.download(args.video, Path(args.download_to), start, end, info=info, on_progress=progress)
+    say(f"saved {path}")
+    args.video, args.start, args.end = str(path), 0.0, None
+    if args.numbers is None and info.get("numbers"):
+        args.numbers = info["numbers"]
+
+
 def cmd_track(args: argparse.Namespace) -> int:
+    from .fetch import is_link
+
+    if is_link(args.video):
+        _fetch_link(args)
     cfg = _load_config(args)
     start, end, _ = _time_to_frames(cfg, args.video, args.start, args.end)
 

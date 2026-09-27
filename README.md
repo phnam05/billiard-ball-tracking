@@ -32,8 +32,9 @@ pip install -r requirements.txt
 ```
 
 Python 3.9+. Only NumPy and OpenCV are required; SciPy and PyYAML are optional
-(an exact pure-NumPy assignment solver and JSON config ship as fallbacks), and
-`imageio-ffmpeg` lets the app write videos every browser plays.
+(an exact pure-NumPy assignment solver and JSON config ship as fallbacks),
+`imageio-ffmpeg` lets the app write videos every browser plays, and `yt-dlp`
+lets it track a YouTube link.
 
 ## The app
 
@@ -52,7 +53,20 @@ track it, see the results.
   files you drop onto the page), each with its thumbnail and last result. Each
   has one blue button for its next step: **Track**, then **Watch progress**
   while it runs, then **See results**. Clicking the picture does the same.
-  **Add videos** uploads files or lists a whole folder.
+  **Add videos** takes a YouTube link, uploads files, or lists a whole folder.
+* **A YouTube link**: paste it in *Add videos*. The app looks it up in a few
+  seconds and shows its length, and how long tracking it all would take on
+  this computer. You then pick the part you want (`20:00` to `25:00`). Only that
+  part is downloaded, at 720p, and it is tracked as soon as it arrives. The
+  estimate for your part updates as you type. On the work laptop a 60 fps
+  broadcast tracks at a little over half its playing speed, so a whole
+  hour-long match would take about 1 h 45 min, and a 3–5 minute part 5–8
+  minutes. A link made with
+  YouTube's *Share → Start at* fills in the start. Any site `yt-dlp` reads
+  works too.
+
+  ![pasting a YouTube link](docs/images/app_link.png)
+
 * **Set up** (*Check the table first* / *Change set-up*): where the tracker
   thinks the table is, drawn over any frame you pick, with the balls it sees
   there and plain warnings when something looks off. The cloth mask shows what
@@ -91,6 +105,10 @@ python main.py calibrate clip.mp4 --save-preview calib.png
 
 # A different table
 python main.py clip.mp4 --preset snooker-12ft
+
+# A part of a YouTube video: only 20:00-25:00 is downloaded (into
+# billiards-workspace/downloads/, where the app lists it), then tracked
+python main.py "https://www.youtube.com/watch?v=d5TyZPetBkA" --start 20:00 --end 25:00 -o out.mp4
 ```
 
 While a window is open: `space` pauses, `c` clears the trails, `q` quits.

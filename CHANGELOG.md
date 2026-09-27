@@ -3,6 +3,51 @@
 What changed, newest first. The reasons behind each
 change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## 2026-09-28
+
+### Added
+
+- **Track a YouTube link, a few minutes at a time** (`billiards/fetch.py`,
+  `billiards/app/downloads.py`). A match on YouTube is often an hour long, and
+  tracking all of it takes longer than watching it, so:
+  - In the app, **Add videos** starts with a link box. Pasting a link looks it
+    up in about 3 s and shows the title, length and picture size, plus how
+    long tracking the whole video would take on this computer. For a video
+    over 10 minutes it suggests a 5-minute part.
+  - You pick the part (`20:00` to `25:00`, or the *3 min* / *5 min* / *whole
+    video* buttons), and the estimate for that part updates as you type. A
+    link made with YouTube's *Share → Start at* (`&t=1200`) fills in the start.
+  - **Download and track** fetches only that part, at 720p, H.264, no sound,
+    into `billiards-workspace/downloads/`. It is queued for tracking as soon
+    as it arrives. The library shows the download with its progress, and it
+    can be stopped (nothing is left behind) or tried again.
+  - The game is read from the title (*10-Ball* → balls 1–10), and can be
+    changed.
+  - From the command line: `billiards "<link>" --start 20:00 --end 25:00 -o
+    out.mp4` prints the estimate, downloads the part, then tracks it.
+- The estimate is a **range**: the fastest to slowest of this computer's last
+  5 runs. Until there are 3 runs, the pace measured on a broadcast (35.4
+  frames a second through the app) is part of the range.
+- Library cards of untracked videos say about how long tracking will take.
+- `track --numbers 1-10` (balls in play) and times as `m:ss` / `h:mm:ss` for
+  `--start` / `--end`.
+- `yt-dlp[default]` is an optional dependency, in `requirements.txt` and the
+  `app` / `full` extras. When it is missing, the app says how to install it.
+- 18 tests (`tests/test_fetch.py`), with yt-dlp played by a script so no test
+  needs the network. 149 pass.
+
+### Fixed
+
+- Durations such as 419.6 s read "6 min 60 s" in the app.
+
+### Measured (no tracker change, so `results/` was not regenerated)
+
+- On 20:00–24:00 of the example final (720p, 60 fps, 32 camera changes),
+  the 4 minutes tracked in 407 s through the app (35.4 fps), 494 s from the
+  command line with `-o --no-overhead` (29.2 fps), and 674 s with `-o` and
+  the diagram drawn in (21.5 fps). The whole 61-minute video would take about
+  1 h 45 min in the app. Downloading the 4-minute part took 17 s.
+
 ## 2026-09-27
 
 ### Changed

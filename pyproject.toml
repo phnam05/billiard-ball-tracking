@@ -24,10 +24,11 @@ dependencies = [
 [project.optional-dependencies]
 # Both are genuinely optional: an exact pure-NumPy assignment solver ships in
 # billiards/assignment.py, and JSON config works without PyYAML.
-full = ["scipy>=1.10", "pyyaml>=6.0", "imageio-ffmpeg>=0.4"]
+full = ["scipy>=1.10", "pyyaml>=6.0", "imageio-ffmpeg>=0.4", "yt-dlp[default]>=2025.11.12"]
 # The app (`billiards app`) needs nothing more; imageio-ffmpeg lets it write
-# its videos as H.264, which every browser plays.
-app = ["imageio-ffmpeg>=0.4"]
+# its videos as H.264, which every browser plays, and yt-dlp lets it take a
+# YouTube link.
+app =["imageio-ffmpeg>=0.4", "yt-dlp[default]>=2025.11.12"]
 dev = ["pytest>=7.0", "scipy>=1.10", "pyyaml>=6.0"]
 
 [project.scripts]

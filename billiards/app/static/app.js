@@ -130,11 +130,29 @@ function fmtClock(s) {
 }
 function fmtDur(s) {
   if (s === null || s === undefined || !isFinite(s)) return "–";
-  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} s`;
-  const m = Math.floor(s / 60), sec = Math.round(s - 60 * m);
+  if (s < 59.5) return `${s.toFixed(s < 10 ? 1 : 0)} s`;
+  s = Math.round(s);
+  const m = Math.floor(s / 60), sec = s - 60 * m;
   if (m < 60) return `${m} min ${sec ? sec + " s" : ""}`.trim();
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
+// A guess at how long something will take: rounded as a person would say it.
+function fmtAbout(s) {
+  if (s < 90) return s < 45 ? "under a minute" : "1 min";
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const m = 5 * Math.round(s / 300);
+  return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+}
+// From the fastest to the slowest pace this computer has tracked at recently.
+function fmtRange(fast, slow) {
+  const a = fmtAbout(fast), b = fmtAbout(slow);
+  return a === b ? a : `${a} to ${b}`;
+}
+function trackingRange(videoSeconds, fps, speed) {
+  if (!videoSeconds || !fps || !speed) return null;
+  return fmtRange(videoSeconds * fps / speed.fast, videoSeconds * fps / speed.slow);
+}
+
 function fmtBytes(n) {
   if (!n && n !== 0) return "";
   const u = ["B", "KB", "MB", "GB"]; let i = 0;
@@ -223,7 +241,7 @@ function statusPill(status) {
     queued: ["", "waiting"], finishing: ["run", "finishing"], failed: ["bad", "failed"],
     cancelled: ["warn", "stopped"], tracking: ["ok", "tracking"], connecting: ["run", "connecting"],
     no_table: ["warn", "no table found"], ended: ["", "ended"], stopped: ["", "stopped"], idle: ["", "idle"],
-    error: ["bad", "error"],
+    error: ["bad", "error"], downloading: ["run", "downloading"],
   };
   const [cls, text] = map[status] || ["", status || "?"];
   return h("span", { class: `pill ${cls}` }, text);
@@ -330,6 +348,141 @@ async function uploadFiles(files) {
   return added;
 }
 
+// A link (YouTube, ...): look it up, pick the part, see how long it will take.
+function parseClock(text) {
+  const s = String(text ?? "").trim();
+  if (!s) return null;
+  const parts = s.split(":");
+  if (parts.length > 3 || !parts.every((p) => /^\d+(\.\d*)?$/.test(p))) return NaN;
+  return parts.reduce((t, p) => t * 60 + parseFloat(p), 0);
+}
+function clockText(s) {
+  s = Math.round(s);
+  const hr = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
+  const two = (n) => String(n).padStart(2, "0");
+  return hr ? `${hr}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
+}
+// "Share → Start at" on YouTube adds ?t=1200 (or t=20m0s) to the link.
+function linkStart(url) {
+  const m = /[?&#]t=(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?(?:&|$)/.exec(url || "");
+  if (!m || !(m[1] || m[2] || m[3])) return null;
+  return 3600 * (+m[1] || 0) + 60 * (+m[2] || 0) + (+m[3] || 0);
+}
+
+function linkSection(onStarted) {
+  const input = h("input", { type: "url", placeholder: "https://www.youtube.com/watch?v=…", style: { flex: "1" }, "aria-label": "Video link" });
+  const look = h("button", { class: "btn primary" }, "Look up");
+  const out = h("div", { class: "stack", style: { gap: "10px" } });
+  let seq = 0;
+
+  async function lookUp() {
+    const url = input.value.trim();
+    if (!url) return;
+    const mine = ++seq;
+    look.disabled = true;
+    out.replaceChildren(h("div", { class: "small muted" }, "Looking it up…"));
+    let info;
+    try { info = await api("POST", "/api/links/look-up", { url }, { quiet: true }); }
+    catch (err) { if (mine === seq) out.replaceChildren(h("div", { class: "notice bad" }, err.message)); return; }
+    finally { if (mine === seq) look.disabled = false; }
+    if (mine === seq) render(info, linkStart(url));
+  }
+  look.addEventListener("click", lookUp);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") lookUp(); });
+  input.addEventListener("paste", () => setTimeout(lookUp, 0));
+
+  function render(info, fromLink) {
+    const dur = info.duration_s;
+    const first = fromLink !== null && (!dur || fromLink < dur) ? fromLink : 0;
+    const suggestEnd = dur ? Math.min(dur, info.long ? first + info.suggested_part_s : dur) : null;
+    const start = h("input", { type: "text", class: "clock", value: clockText(first), "aria-label": "Start (m:ss)" });
+    const end = h("input", { type: "text", class: "clock", value: suggestEnd !== null ? clockText(suggestEnd) : "", placeholder: "the end", "aria-label": "End (m:ss)" });
+    const games = [["1-15", "8-ball (1–15)"], ["1-9", "9-ball (1–9)"], ["1-10", "10-ball (1–10)"]];
+    const numbers = h("select", { "aria-label": "Game" },
+      games.map(([v, label]) => h("option", { value: v, selected: v === (info.numbers || "1-15") }, label)));
+    const estimate = h("div", { class: "notice info" });
+    const go = h("button", { class: "btn primary" }, icon("download"), "Download and track");
+    const only = h("button", { class: "link" }, "Download only");
+    let length = null;
+
+    const whole = dur ? fmtRange(...info.whole_estimate_s) : null;
+    const quick = (label, a, b) => h("button", {
+      class: "btn sm",
+      onclick: () => { start.value = clockText(a); end.value = b === null ? "" : clockText(b); update(); },
+    }, label);
+    function update() {
+      const a = parseClock(start.value) ?? 0;
+      let b = parseClock(end.value);
+      if (b === null || (dur && b > dur)) b = dur ?? null;
+      let problem = null;
+      if (Number.isNaN(a) || Number.isNaN(b)) problem = "Write the times as m:ss (like 20:00) or h:mm:ss.";
+      else if (dur && a >= dur) problem = `The video is only ${clockText(dur)} long.`;
+      else if (b !== null && b <= a) problem = "The end must be after the start.";
+      go.disabled = only.disabled = !!problem;
+      length = null;
+      if (problem) { estimate.className = "notice bad"; estimate.replaceChildren(problem); return; }
+      if (b === null) { estimate.className = "notice"; estimate.replaceChildren("This video's length is not known, so neither is how long tracking it will take."); return; }
+      length = b - a;
+      const sp = info.speed;
+      estimate.className = length > 10 * 60 ? "notice" : "notice info";
+      estimate.replaceChildren();
+      append(estimate, [
+        h("b", null, `About ${trackingRange(length, info.fps, sp)} to track`), ` ${fmtDur(length)} of video, after the download.`,
+        h("div", { class: "small muted", style: { marginTop: "4px" } },
+          `${Math.round(length * info.fps).toLocaleString()} frames at ${fmtFps(info.fps)}, tracked at ${sp.slow === sp.fast ? sp.slow : `${sp.slow} to ${sp.fast}`} a second (${sp.from}). `,
+          "Close-ups and replays go fastest: the tracker skips them."),
+        length > 10 * 60 ? h("div", { class: "small", style: { marginTop: "4px" } }, "That is a long part: a few minutes is usually enough.") : null]);
+    }
+    start.addEventListener("input", update);
+    end.addEventListener("input", update);
+
+    async function submit(track) {
+      go.disabled = only.disabled = true;
+      try {
+        const job = await api("POST", "/api/links/download", {
+          url: info.url || input.value.trim(), start: start.value, end: end.value || null, track,
+          settings: { numbers: numbers.value },
+        });
+        toast(`Downloading ${length ? fmtDur(length) + " of " : ""}${info.title}.${track ? " It is tracked as soon as it is in." : ""}`, "ok");
+        onStarted && onStarted(job);
+      } catch { go.disabled = only.disabled = false; }
+    }
+    go.addEventListener("click", () => submit(true));
+    only.addEventListener("click", () => submit(false));
+
+    out.replaceChildren(
+      h("div", { class: "link-info" },
+        info.thumbnail ? h("img", { src: info.thumbnail, alt: "", referrerpolicy: "no-referrer", onerror: (e) => e.target.remove() }) : null,
+        h("div", { style: { minWidth: 0 } },
+          h("div", { class: "link-title", title: info.title }, info.title),
+          h("div", { class: "card-meta" }, [info.uploader, dur ? fmtDur(dur) : null, info.height ? `${info.width}×${info.height}` : null, fmtFps(info.fps)].filter(Boolean).join(" · ")))),
+      info.long ? h("div", { class: "notice" },
+        h("b", null, `This video is ${fmtDur(dur)} long.`), ` Tracking all of it would take about ${whole} on this computer. `,
+        `Pick the few minutes you want: ${first ? "five from where your link starts" : "the first five"} are filled in. `,
+        h("span", { class: "muted" }, "On YouTube, Share → Start at gives a link that starts the part where you paused.")) : null,
+      h("div", { class: "field" }, h("span", null, "Part to track"),
+        h("div", { class: "btn-row" }, start, "to", end,
+          dur && info.long ? quick("3 min", first, Math.min(dur, first + 180)) : null,
+          dur && info.long ? quick("5 min", first, Math.min(dur, first + 300)) : null,
+          dur ? quick(`whole video (${whole})`, 0, null) : null),
+        h("span", { class: "hint" }, "m:ss or h:mm:ss, like 20:00 to 25:00. Only this part is downloaded.")),
+      h("label", { class: "field" }, h("span", null, "Game"), numbers),
+      estimate,
+      h("div", { class: "btn-row" }, go, only));
+    update();
+  }
+
+  api("GET", "/api/status", undefined, { quiet: true }).then((s) => {
+    if (s.links_missing) {
+      input.disabled = look.disabled = true;
+      out.replaceChildren(h("div", { class: "notice" }, `${s.links_missing}. Then restart the app.`));
+    }
+  }).catch(() => {});
+
+  return h("div", { class: "field" }, h("span", null, "A YouTube link (or another video site)"),
+    h("div", { class: "btn-row" }, input, look), out);
+}
+
 function openAddDialog(onAdded) {
   const input = h("input", { type: "text", placeholder: "C:\\Videos\\pool   or   C:\\Videos\\match.mp4", style: { flex: "1" } });
   const list = h("div", { class: "browser-list" });
@@ -380,7 +533,8 @@ function openAddDialog(onAdded) {
   });
 
   const m = modal("Add videos", [
-    h("div", { class: "field" }, h("span", null, "A video on this computer"),
+    linkSection((job) => { m.close(); onAdded && onAdded({ download: job }); }),
+    h("div", { class: "field" }, h("span", null, "Or a video on this computer"),
       h("div", { class: "btn-row" }, h("button", { class: "btn primary", onclick: () => fileInput.click() }, icon("upload"), "Choose video files…"),
         h("span", { class: "small muted" }, "or drop them anywhere on the page")), fileInput),
     h("div", { class: "field" }, h("span", null, "Or list a whole folder, or a file where it is, without copying it"),
@@ -401,7 +555,8 @@ function viewLibrary(main, life) {
   const grid = h("div", { class: "grid" });
   const guide = h("div");
   const addBtn = h("button", { class: "btn", onclick: () => openAddDialog(load) }, icon("plus"), "Add videos");
-  let data = { videos: [], folders: [] };
+  let data = { videos: [], folders: [], downloads: [] };
+  const downloading = () => (data.downloads || []).filter((d) => ["queued", "downloading"].includes(d.status));
 
   main.append(
     h("div", { class: "page-head" },
@@ -425,7 +580,7 @@ function viewLibrary(main, life) {
     for (const f of data.folders) {
       const short = f.split(/[\\/]/).filter(Boolean).slice(-2).join("/");
       folders.append(h("span", { class: "chip", title: f }, icon("folder"), short,
-        /[\\/]uploads$/.test(f) ? null : h("button", {
+        /[\\/](uploads|downloads)$/.test(f) ? null : h("button", {
           "aria-label": `Stop listing ${f}`, title: "Stop listing this folder",
           onclick: async () => { await api("POST", "/api/folders/remove", { path: f }); load(); },
         }, "×")));
@@ -435,10 +590,13 @@ function viewLibrary(main, life) {
     const q = search.value.trim().toLowerCase();
     const vids = data.videos.filter((v) => !q || v.name.toLowerCase().includes(q));
     grid.innerHTML = "";
+    // Downloads in progress, and ones that went wrong; a finished one is a video card.
+    for (const d of (data.downloads || []).filter((d) => d.status !== "done")) grid.append(downloadCard(d));
     if (!data.videos.length) {
+      if (grid.childElementCount) return;
       grid.append(h("div", { class: "empty", style: { gridColumn: "1 / -1" } },
         h("div", { class: "big" }, "No videos yet"),
-        h("div", null, "Drop a video file anywhere on this page, or press Add videos."),
+        h("div", null, "Press Add videos and paste a YouTube link, or drop a video file anywhere on this page."),
         h("button", { class: "btn primary", onclick: () => openAddDialog(load) }, icon("plus"), "Add videos")));
       return;
     }
@@ -451,10 +609,12 @@ function viewLibrary(main, life) {
     const vids = data.videos.filter((v) => !v.error);
     const running = vids.find((v) => v.active_run);
     const tracked = vids.some((v) => v.last_run);
+    const dl = downloading()[0];
     let step, text;
-    if (!vids.length) { step = 1; text = "Start by adding a video: drop the file anywhere on this page, or press Add videos."; }
+    if (dl && !running) { step = 1; text = h("span", null, "Downloading ", h("b", null, dl.title), dl.track ? ". It is tracked as soon as it is in; you can look around meanwhile." : "."); }
+    else if (!vids.length) { step = 1; text = h("span", null, "Start by adding a video: press ", h("b", null, "Add videos"), " and paste a YouTube link, or drop a video file anywhere on this page."); }
     else if (running) { step = 2; text = h("span", null, "Tracking ", h("b", null, running.name), ". Its results open when it is done; you can look around meanwhile."); }
-    else if (!tracked) { step = 2; text = h("span", null, "Press ", h("b", null, "Track"), " on a video. It needs no set-up, and takes about as long as the video plays."); }
+    else if (!tracked) { step = 2; text = h("span", null, "Press ", h("b", null, "Track"), " on a video. It needs no set-up; each card says about how long it will take."); }
     else { step = 3; text = h("span", null, "Press ", h("b", null, "See results"), " on a video to watch it back with every shot, cushion and pot. Or press ", h("b", null, "Track"), " on one you have not tracked yet."); }
     const labels = ["Add a video", "Track it", "See the results"];
     guide.replaceChildren(h("div", { class: "guide panel" },
@@ -484,7 +644,11 @@ function viewLibrary(main, life) {
       const b = v.last_run.brief || {};
       const shots = (b.shots || []).length;
       status = h("span", null, "✓ tracked ", fmtWhen(v.last_run.finished), " · ", plural(b.tracks || 0, "ball"), " · ", plural(shots, "shot"));
-    } else status = h("span", { class: "muted" }, v.has_settings ? "set up, not tracked yet" : "not tracked yet");
+    } else {
+      const secs = trackingTime(v);
+      status = h("span", { class: "muted" }, v.has_settings ? "set up, not tracked yet" : "not tracked yet",
+        secs ? ` · about ${secs} to track` : "");
+    }
 
     const track = async () => {
       try {
@@ -519,8 +683,41 @@ function viewLibrary(main, life) {
             h("button", { class: "link quiet", title: "Remove from the library (the file is kept)", onclick: forget }, "Remove")))));
   }
 
+  // How long tracking a video will take, at this computer's recent speed.
+  function trackingTime(v) {
+    return trackingRange(v.duration_s, v.fps, data.speed);
+  }
+
+  function downloadCard(d) {
+    const active = ["queued", "downloading"].includes(d.status);
+    const part = d.start_s || d.end_s !== null ? `${clockText(d.start_s || 0)} to ${d.end_s !== null ? clockText(d.end_s) : "the end"}` : "the whole video";
+    let status;
+    if (active) {
+      status = h("div", { class: "stack", style: { gap: "4px" } },
+        h("span", null, statusPill(d.status), " ", d.status === "downloading"
+          ? `${Math.round(100 * d.progress)}%${d.eta_s !== null ? ` · about ${fmtDur(d.eta_s)} left` : ""}` : ""),
+        h("div", { class: "progress" }, h("i", { style: { width: `${100 * d.progress}%` } })));
+    } else if (d.status === "failed") status = h("span", { style: { color: "var(--bad)" } }, `⚠ ${d.error}`);
+    else status = h("span", { class: "muted" }, "download stopped");
+    const act = async (path, body) => { try { await api("POST", path, body); } catch { /* toast shown */ } load(); };
+    const actions = active
+      ? [h("button", { class: "btn", onclick: () => act(`/api/downloads/${d.id}/cancel`) }, "Stop the download")]
+      : [h("button", { class: "btn primary", onclick: async () => { await act("/api/links/download", { url: d.url, start: d.start_s, end: d.end_s, track: d.track }); act(`/api/downloads/${d.id}/dismiss`); } }, "Try again"),
+        h("div", { class: "card-more" }, h("button", { class: "link quiet", onclick: () => act(`/api/downloads/${d.id}/dismiss`) }, "Dismiss"))];
+    const img = d.thumbnail ? h("img", { src: d.thumbnail, alt: "", referrerpolicy: "no-referrer" }) : null;
+    const thumb = h("div", { class: "thumb", style: { cursor: "default" } }, img || h("div", { class: "noimg" }, "downloading"),
+      d.part_s ? h("span", { class: "badge" }, clockText(d.part_s)) : null);
+    if (img) img.addEventListener("error", () => { img.remove(); thumb.prepend(h("div", { class: "noimg" }, "no preview")); });
+    return h("div", { class: "card panel" }, thumb,
+      h("div", { class: "card-body" },
+        h("div", { class: "card-title", title: d.url, style: { cursor: "default" } }, d.title),
+        h("div", { class: "card-meta" }, `${d.site || "Link"}: ${part}${d.track ? ", then tracked" : ""}`),
+        h("div", { class: "card-status" }, status),
+        h("div", { class: "card-actions" }, actions)));
+  }
+
   load();
-  life.every(2500, () => { if (data.videos.some((v) => v.active_run)) load(); });
+  life.every(2500, () => { if (data.videos.some((v) => v.active_run) || downloading().length) load(); });
   life.every(15000, load);
 }
 
@@ -1642,7 +1839,7 @@ function viewHelp(main) {
     h("div", { class: "help" },
       h("div", { class: "panel panel-pad" }, h("h2", null, "Getting started"),
         h("ol", null,
-          h("li", null, h("b", null, "Add videos"), " in the Library, or drop video files anywhere on the page."),
+          h("li", null, h("b", null, "Add videos"), " in the Library: paste a YouTube link and pick the few minutes you want, or choose video files, or drop them anywhere on the page."),
           h("li", null, "Press ", h("b", null, "Track"), " on a video. It usually needs nothing else: the table, the cloth and the balls are found from the video itself."),
           h("li", null, "Watch it being tracked, or leave it: tracking carries on in the background, one video after another."),
           h("li", null, "Press ", h("b", null, "See results"), ". The tracked video plays beside a top-down view of the table, with every shot, contact, cushion and pot on a timeline you can click. Everything you have tracked is under ", h("b", null, "Results"), " on the left."))),
@@ -1659,6 +1856,13 @@ function viewHelp(main) {
           h("li", null, "A camera that stays still. Cuts and slow zooms are handled; constant panning is not."),
           h("li", null, "720p or better. Screen recordings of broadcasts work: their repeated frames are detected and the real frame rate recovered."),
           h("li", null, "Hard cases: a ball the colour of the cloth, balls pressed against the far cushion, and hands resting on the table."))),
+      h("div", { class: "panel panel-pad" }, h("h2", null, "Videos from YouTube"),
+        h("p", null, "Paste the link in ", h("b", null, "Add videos"), ". The app looks it up (a few seconds), says how long it is and how long tracking it would take, and downloads only the part you pick, at 720p. A 60 fps broadcast tracks at a little over half its playing speed, so an hour-long match takes one and three-quarter hours or more: pick the 3–5 minutes you want instead. The time is worked out from this computer's own recent runs."),
+        h("ul", null,
+          h("li", null, "Times are m:ss or h:mm:ss. A YouTube link made with ", h("b", null, "Share → Start at"), " fills in the start for you."),
+          h("li", null, "Other sites work too: anything ", h("code", null, "yt-dlp"), " can read."),
+          h("li", null, "Links need ", h("code", null, "pip install yt-dlp"), ". When downloads that used to work start failing, the site has changed: ", h("code", null, "pip install -U yt-dlp"), "."),
+          h("li", null, "Highlight reels cut a lot. The table is found again after each cut, and tracking pauses on close-ups and replays."))),
       h("div", { class: "panel panel-pad" }, h("h2", null, "Live"),
         h("p", null, "Live tracks a camera (a webcam or USB camera), a network stream (RTSP, MJPEG, a phone camera app), or a library video replayed at its own pace to try things out. The table is found from the first few seconds. When tracking cannot keep up, frames are skipped rather than falling behind. Tick ", h("b", null, "Keep the session in Results"), " to watch it back later.")),
       h("div", { class: "panel panel-pad" }, h("h2", null, "Keyboard, on the results page"),
@@ -1671,6 +1875,7 @@ function viewHelp(main) {
         h("pre", { class: "mono small", style: { whiteSpace: "pre-wrap", margin: 0 } },
           "billiards clip.mp4 -o tracked.mp4 --csv tracks.csv --json run.json\n" +
           "billiards clip.mp4 --table-corners x1,y1,x2,y2,x3,y3,x4,y4\n" +
+          "billiards \"https://www.youtube.com/watch?v=...\" --start 20:00 --end 25:00 -o tracked.mp4\n" +
           "billiards calibrate clip.mp4 --save-preview preview.png\n" +
           "billiards app --folder D:\\footage --port 8765")),
       h("div", { class: "panel panel-pad" }, h("h2", null, "Videos will not play in the browser?"),

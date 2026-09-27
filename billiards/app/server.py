@@ -16,6 +16,11 @@ Routes (all JSON unless noted)::
     GET  /api/folders                    folders scanned for videos
     POST /api/folders/remove    {path}
     GET  /api/browse?path=               folders and videos, for the picker
+    POST /api/links/look-up     {url}    a YouTube (or other) link: title, length, estimate
+    POST /api/links/download    {url, start, end, track, settings}   fetch a part of it
+    GET  /api/downloads                  downloads, newest first
+    POST /api/downloads/<id>/cancel
+    POST /api/downloads/<id>/dismiss     take a finished one off the list
     GET  /api/videos/<id>/thumb.jpg      (image)
     GET  /api/videos/<id>/frame.jpg?t=   (image) a frame at processing size
     GET  /api/videos/<id>/mask.jpg?t=    (image) what is taken for cloth
@@ -59,9 +64,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import cv2
 
-from .. import __version__
+from .. import __version__, fetch
 from ..config import TABLE_PRESETS
 from ..video import browser_codec
+from .downloads import DownloadManager, processing_fps
 from .jobs import RunManager
 from .live import LiveManager, list_cameras
 from .preview import calibration_report, cloth_mask_jpeg
@@ -83,6 +89,7 @@ class App:
     def __init__(self, ws: Workspace, parallel: int = 1) -> None:
         self.ws = ws
         self.runs = RunManager(ws, parallel=parallel)
+        self.downloads = DownloadManager(ws, self.runs)
         self.live = LiveManager(ws)
         self.allowed_hosts: set = set()
         self._cameras: Optional[Tuple[float, List[Dict[str, Any]]]] = None
@@ -321,6 +328,8 @@ def status(h: Handler) -> None:
         "python": sys.version.split()[0],
         "opencv": cv2.__version__,
         "active_runs": len(h.app.runs.active()),
+        "active_downloads": len(h.app.downloads.active()),
+        "links_missing": fetch.missing(),
         "live": h.app.live.state().get("status"),
     })
 
@@ -336,7 +345,8 @@ def videos(h: Handler) -> None:
         v["active_run"] = active.get(v["id"])
         v["has_settings"] = (h.app.ws.root / "settings" / f"{v['id']}.json").exists()
         out.append(v)
-    h._json({"videos": out, "folders": h.app.ws.folders()})
+    h._json({"videos": out, "folders": h.app.ws.folders(), "downloads": h.app.downloads.list(),
+             "speed": processing_fps(h.app.ws)})
 
 
 @route("POST", r"/api/videos/add")
@@ -365,6 +375,36 @@ def upload(h: Handler) -> None:
     if length <= 0:
         raise ValueError("empty upload")
     h._json({"added": h.app.ws.save_upload(name, h.rfile, length)})
+
+
+@route("POST", r"/api/links/look-up")
+def look_up_link(h: Handler) -> None:
+    h._json(h.app.downloads.look_up(str(h.body().get("url") or "")))
+
+
+@route("POST", r"/api/links/download")
+def download_link(h: Handler) -> None:
+    body = h.body()
+    job = h.app.downloads.submit(
+        str(body.get("url") or ""), body.get("start"), body.get("end"),
+        track=body.get("track", True) is not False, settings=body.get("settings") or None,
+    )
+    h._json(job.to_dict(), HTTPStatus.CREATED)
+
+
+@route("GET", r"/api/downloads")
+def list_downloads(h: Handler) -> None:
+    h._json({"downloads": h.app.downloads.list()})
+
+
+@route("POST", r"/api/downloads/([0-9a-f]{12})/cancel")
+def cancel_download(h: Handler, jid: str) -> None:
+    h._json({"ok": h.app.downloads.cancel(jid)})
+
+
+@route("POST", r"/api/downloads/([0-9a-f]{12})/dismiss")
+def dismiss_download(h: Handler, jid: str) -> None:
+    h._json({"ok": h.app.downloads.dismiss(jid)})
 
 
 @route("GET", r"/api/folders")

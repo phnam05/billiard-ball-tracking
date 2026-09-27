@@ -7,6 +7,7 @@ Everything lives under one folder (``billiards-workspace/`` by default)::
     runs/<run>/           one folder per run: meta.json, run.json, tracks.csv,
                           the annotated video and viewer.json for the browser
     uploads/              videos dropped into the browser
+    downloads/            parts of videos fetched from a link (YouTube, ...)
     cache/                probed video metadata and thumbnails
 
 A video is known by a short hash of its absolute path, so the same file keeps
@@ -156,7 +157,7 @@ def safe_filename(name: str) -> str:
 class Workspace:
     def __init__(self, root: Path, folders: Iterable[Path] = ()) -> None:
         self.root = Path(root).resolve()
-        for sub in ("settings", "runs", "uploads", "cache/thumbs"):
+        for sub in ("settings", "runs", "uploads", "downloads", "cache/thumbs"):
             (self.root / sub).mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._library_path = self.root / "library.json"
@@ -167,9 +168,9 @@ class Workspace:
         self._meta_path = self.root / "cache" / "meta.json"
         self._meta: Dict[str, Any] = _read_json(self._meta_path, {})
         self._meta_dirty = False
-        uploads = str(self.root / "uploads")
-        if uploads not in self._library["folders"]:
-            self._library["folders"].append(uploads)
+        for own in self.own_folders():
+            if str(own) not in self._library["folders"]:
+                self._library["folders"].append(str(own))
         for folder in folders:
             self.add_folder(folder, save=False)
         self._save_library()
@@ -179,6 +180,10 @@ class Workspace:
     def _save_library(self) -> None:
         with self._lock:
             _write_json(self._library_path, self._library)
+
+    def own_folders(self) -> List[Path]:
+        """Folders whose videos the app put there, and may delete."""
+        return [self.root / "uploads", self.root / "downloads"]
 
     def folders(self) -> List[str]:
         return list(self._library["folders"])
@@ -223,12 +228,12 @@ class Workspace:
 
     def forget(self, vid: str) -> None:
         """Take a video off the library list (the file itself is left alone,
-        unless it was uploaded into the workspace)."""
+        unless the app put it in the workspace: an upload or a download)."""
         video = self.video(vid)
         with self._lock:
             if video is not None:
                 self._library["files"] = [f for f in self._library["files"] if f != video["path"]]
-                if Path(video["path"]).parent == self.root / "uploads":
+                if Path(video["path"]).parent in self.own_folders():
                     try:
                         Path(video["path"]).unlink()
                     except OSError:

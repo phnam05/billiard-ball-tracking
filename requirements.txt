@@ -9,3 +9,6 @@ scipy>=1.10
 pyyaml>=6.0
 #   imageio-ffmpeg - lets `billiards app` write videos a browser plays (H.264)
 imageio-ffmpeg>=0.4
+#   yt-dlp - track a YouTube link (only the part picked is downloaded); sites
+#            change, so update it when links stop working: pip install -U yt-dlp
+yt-dlp[default]>=2025.11.12

@@ -10,12 +10,13 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 🧭 Where the project stands
 
-*Last updated: **27 Sep 2026***
+*Last updated: **28 Sep 2026***
 
 | Area | Status | Notes |
 |---|:---:|---|
 | The app | ✅ | `python main.py app`: says what to do next, one button per video; library, set-up, results, live |
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
+| YouTube links | ✅ | Paste a link, pick the minutes, see how long first; tried on one YouTube final |
 | Finding the table | ✅ | Sample clips, 6 cloths, 4 cameras; grey cloth needs corners by hand |
 | Finding the balls | ⚠️ | Balls against the far cushion unseen (an app option finds them, plus a phantom) |
 | Ball numbers 1–15 | ✅ | 72–97% right on synthetic; right in all 3 real shot logs |
@@ -23,8 +24,8 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Pots | ⚠️ | `fedor_shot`'s 2 found; `albin_fedor`'s 5 missed (far-left corner) |
 | Collisions | ⚠️ | 4 of 6 on synthetic, 3 false |
 | Ball speeds | ✅ | 2.7% median error (4.9% screen-recorded) |
-| Tests | ✅ | 131 pass |
-| On GitHub | ✅ | Everything to 26 Sep pushed (`0fe9fc9`) |
+| Tests | ✅ | 149 pass |
+| On GitHub | ✅ | Everything to 28 Sep pushed |
 
 **Key numbers**: synthetic break (`reports/run-log.json`, 26 Sep 17:21)
 
@@ -49,6 +50,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **23 Sep 2026** | Work computer: clock, ball height, events, identity, ball numbers | Positions right on broadcasts; cushions 5 → 40 of 44 |
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
+| **28 Sep 2026** | YouTube links, with a measured time estimate | Paste a link, track only the minutes picked |
 
 ---
 
@@ -192,6 +194,31 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 3 | 4 equal buttons per video | One blue button for the next step (Track → Watch progress → See results); the picture does the same; the rest are small links | Clicked through Track → progress → results on a fresh workspace |
 | 4 | "Upload" beside "Add footage"; "Runs"; 6 buttons over the results | One **Add videos** dialog; Runs → **Results**; one **Download** menu; set-up and results pages say what to do | README text and screenshot updated |
 | 5 | Live showed "null" and a broken picture before starting | A missing name was passed to the page as `null`; the empty picture is hidden | Fixed; no JavaScript errors on any page |
+
+---
+
+## 📅 28 Sep 2026: A YouTube link, a few minutes of it
+
+*Work computer, scratch venv (+ yt-dlp). The tracker is untouched, so `results/` still matches it. Committed and pushed.*
+
+### State at the end of the day
+
+| | |
+|---|---|
+| ✅ Links | Paste a link, pick the part, see the estimate; only that part is downloaded, then tracked (app and command line) |
+| ✅ Estimate | The example final: 1 h 45 min for all 61 min in the app; a 3–5 min part 5–8 min |
+| ⚠️ Highlight reels | Each cut restarts the tracks: 20 "balls" in a minute of 10-ball |
+| ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno) |
+| ✅ Tests | 149 pass (131 at the start) |
+
+| # | 🧩 Problem | 🔧 Fix | 📈 Result |
+|---|---|---|---|
+| 1 | "Give it a YouTube link"; the example is 61 min at 60 fps | 🔍 Download 20:00–24:00 and track it (❌ part of the direct file: 403 → streamed copy) | 4 min in 17 s; 32 cuts recovered, 23 shots |
+| 2 | Pick a few minutes, and say how long first | `fetch.py` + app downloads: link box in *Add videos*, part, game from the title, *Download and track* | 20:00–21:00 downloaded and tracked in the app in 84 s |
+| 3 | The estimate | ❌ median of recent runs → one fast minute made the hour 1 h 25 min → fastest-to-slowest range, broadcast pace kept until 3 runs | "About 7 to 8 min" for 5 min |
+| 4 | The first hour figure, 2 h 50 min | 🔍 That was `track -o`, which draws the diagram: app 35.4 fps, `-o` 21.5, `--no-overhead` 29.2 on the same 4 min | ✏️ The hour is 1 h 45 min in the app |
+| 5 | The command line | `billiards <link> --start 20:00 --end 25:00`; `--numbers`; m:ss times | 30:00–30:20 fetched, 10-ball numbers, tracked |
+| 6 | "6 min 60 s" on the page | Round before splitting minutes | Fixed; 18 new tests, no network needed |
 
 ---
 
