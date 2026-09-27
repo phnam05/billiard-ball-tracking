@@ -3,6 +3,33 @@
 What changed, newest first. The reasons behind each
 change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## 2026-09-27
+
+### Changed
+
+- **The app says what to do next.** It was unclear where to start and what to
+  click: each video had four equal buttons, the blue one (*Track*) re-ran a
+  video that already had results, and clicking the picture opened the set-up.
+  - The library opens with a guide, *① Add a video → ② Track it → ③ See the
+    results*, with the current step lit and one sentence on what to do now.
+  - Each video has one blue button for its next step: **Track**, then **Watch
+    progress** while it runs, then **See results**. Clicking the picture does
+    the same (but never starts a run). *Track again*, *Change set-up* /
+    *Check the table first* and *Remove* are small links; *Remove* asks first.
+  - **Upload** and **Add footage** are one **Add videos** dialog, with
+    choosing files first.
+  - **Runs** is called **Results** throughout.
+  - The set-up page says what to check and offers the last results; the
+    results page says to press play or click an event, and its video, CSV and
+    JSON buttons are one **Download** menu. *Set up & track again* is
+    *Change set-up*.
+  - Help, README and `docs/images/app_results.png` describe the new layout.
+
+### Fixed
+
+- The Live page showed the word "null" and a broken-picture icon before a
+  session was started.
+
 ## 2026-09-26 — commit `0fe9fc9` (with 23 Sep)
 
 ### Added

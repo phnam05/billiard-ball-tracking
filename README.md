@@ -42,30 +42,37 @@ python main.py app                        # opens http://127.0.0.1:8765/ in the 
 python main.py app --folder D:/footage     # list the videos in another folder too
 ```
 
-Everything the command line does, in a browser tab, plus live tracking:
+Everything the command line does, in a browser tab, plus live tracking. It
+opens on the **Library**, which says at the top what to do next: add a video,
+track it, see the results.
 
 ![the app's results page](docs/images/app_results.png)
 
 * **Library**: the videos in the current folder (and any folder you add, or
-  files you drop onto the page), each with its thumbnail, size and last result.
-  **Track** runs it with no set-up at all.
-* **Set up**: where the tracker thinks the table is, drawn over any frame you
-  pick, with the balls it sees there and plain warnings when something looks
-  off. The cloth mask shows what was taken for cloth. If the outline is wrong,
-  **place the corners by hand** by dragging them. Table size, ball set, balls in
-  play and the part of the video to track are set here, per video, and kept.
-* **Runs**: tracking carries on in the background, one video after another.
-  While it runs you watch the frames as they are tracked.
+  files you drop onto the page), each with its thumbnail and last result. Each
+  has one blue button for its next step: **Track**, then **Watch progress**
+  while it runs, then **See results**. Clicking the picture does the same.
+  **Add videos** uploads files or lists a whole folder.
+* **Set up** (*Check the table first* / *Change set-up*): where the tracker
+  thinks the table is, drawn over any frame you pick, with the balls it sees
+  there and plain warnings when something looks off. The cloth mask shows what
+  was taken for cloth. If the outline is wrong, **place the corners by hand**
+  by dragging them. Table size, ball set, balls in play and the part of the
+  video to track are set here, per video, and kept.
+* Tracking carries on in the background, one video after another. While it
+  runs you watch the frames as they are tracked.
 * **Results**: the tracked video beside a top-down view of the table that
   follows it frame by frame. A timeline marks every shot, contact, cushion and
   pot; click one to jump there. There are lists of shots, events and balls, a
-  speed chart for the ball you pick, and CSV/JSON/video downloads. Keys: `space`,
+  speed chart for the ball you pick, and a **Download** menu (the video, a CSV
+  of every ball in every frame, a JSON of shots and events). Keys: `space`,
   `←`/`→` (a frame), `[`/`]` (an event). *Link to this moment* copies an
-  address that opens the results at that frame.
+  address that opens the results at that frame. Everything tracked is listed
+  under **Results** in the sidebar.
 * **Live**: a webcam or USB camera, a network stream (RTSP, MJPEG, a phone
   camera app), or a library video replayed at its own pace. The table is found
   from the first second or so. Frames the tracker has no time for are skipped
-  rather than falling behind, and the session can be saved as a run.
+  rather than falling behind, and the session can be kept in Results.
 
 It listens on this computer only, keeps everything in `billiards-workspace/`,
 and needs nothing beyond the requirements above.

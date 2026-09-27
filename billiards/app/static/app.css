@@ -237,8 +237,48 @@ table.list tr.sel td { background: var(--accent-soft); }
 .card-title { font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .card-meta { color: var(--text-3); font-size: 12px; }
 .card-status { font-size: 12.5px; color: var(--text-2); min-height: 18px; }
-.card-actions { display: flex; gap: 6px; margin-top: 2px; }
-.card-actions .btn { flex: 1; }
+.card-actions { display: grid; gap: 8px; margin-top: 4px; }
+.card-more { display: flex; gap: 14px; align-items: center; font-size: 12.5px; }
+.card-more .quiet { margin-left: auto; }
+
+/* A text button: for the steps that are not the obvious next one. */
+.link {
+  border: 0; background: none; padding: 0; cursor: pointer; color: var(--accent);
+  font-weight: 550; font-size: inherit;
+}
+.link:hover { text-decoration: underline; }
+.link.quiet { color: var(--text-3); font-weight: 500; }
+.link.quiet:hover { color: var(--bad); }
+
+/* "Add a video -> Track it -> See the results", with where you are now. */
+.guide { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 16px; }
+.steps { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; flex: none; }
+.steps li {
+  display: flex; align-items: center; gap: 7px; padding: 4px 12px 4px 5px; border-radius: 999px;
+  color: var(--text-3); font-weight: 600; font-size: 13px; white-space: nowrap;
+}
+.steps li + li::before { content: "→"; color: var(--line-2); margin: 0 8px 0 -4px; font-weight: 400; }
+.steps .n {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px;
+  border: 1.5px solid var(--line-2); color: var(--text-3);
+}
+.steps li.done { color: var(--text-2); }
+.steps li.done .n { border-color: var(--ok); color: var(--ok); }
+.steps li.now { background: var(--accent-soft); color: var(--accent); }
+.steps li.now .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.guide-text { color: var(--text-2); font-size: 13.5px; flex: 1; min-width: 260px; }
+.guide-text b { color: var(--text); }
+
+/* A drop-down made of <details>: the downloads on the results page. */
+.menu { position: relative; }
+.menu > summary { list-style: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 230px;
+  display: grid; padding: 6px; box-shadow: var(--shadow);
+}
+.menu-list a { padding: 7px 10px; border-radius: 6px; color: var(--text); font-size: 13px; }
+.menu-list a:hover { background: var(--panel-2); text-decoration: none; }
 
 /* -- modal ---------------------------------------------------------------- */
 
@@ -278,6 +318,7 @@ table.list tr.sel td { background: var(--accent-soft); }
 .player { background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); position: relative; }
 .player video, .player img.frame { display: block; width: 100%; height: auto; background: #000; }
 .player .live-img { display: block; width: 100%; min-height: 200px; object-fit: contain; background: #000; }
+.player.live { min-height: 220px; }
 .player .overlay-msg {
   position: absolute; inset: 0; display: grid; place-items: center; color: #fff; text-align: center;
   background: rgba(0, 0, 0, .45); font-weight: 600; padding: 20px;

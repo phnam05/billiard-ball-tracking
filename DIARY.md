@@ -10,11 +10,11 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 🧭 Where the project stands
 
-*Last updated: **26 Sep 2026**, 17:45*
+*Last updated: **27 Sep 2026***
 
 | Area | Status | Notes |
 |---|:---:|---|
-| The app | ✅ | `python main.py app`: library, set-up, runs, results, live; opens with the 3 sample clips tracked |
+| The app | ✅ | `python main.py app`: says what to do next, one button per video; library, set-up, results, live |
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
 | Finding the table | ✅ | Sample clips, 6 cloths, 4 cameras; grey cloth needs corners by hand |
 | Finding the balls | ⚠️ | Balls against the far cushion unseen (an app option finds them, plus a phantom) |
@@ -48,6 +48,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **22 Sep 2026** | v2: full rewrite, 16 commits | Tracks every ball, no tuning, measured accuracy |
 | **23 Sep 2026** | Work computer: clock, ball height, events, identity, ball numbers | Positions right on broadcasts; cushions 5 → 40 of 44 |
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
+| **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
 
 ---
 
@@ -168,6 +169,29 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 16 | App opened empty; README screenshot missing | 3 sample clips tracked in the app; captured over CDP (❌ headless `--screenshot`: video stuck on frame 0, or blank) | `docs/images/app_results.png` |
 | 17 | README at 23 Sep numbers, "88 tests"; `default.yaml` still 6 in | README accuracy + other footage + limitations; `UPGRADE_NOTES.md` §1; `dump-config` | Docs match the 17:21 run |
 | 18 | 22–26 Sep work only on this laptop | 23 + 26 Sep as one commit, `.idea/` left out; push worked (GitHub reachable after all) | 17 commits on GitHub |
+
+---
+
+## 📅 27 Sep 2026: An app that says what to do
+
+*Work computer, scratch venv. Page changes only: the tracker is untouched, so `results/` still matches it. Committed and pushed.*
+
+### State at the end of the day
+
+| | |
+|---|---|
+| ✅ App | The library says what to do next; one blue button per video |
+| ✅ Tests | 131 pass |
+| ⚠️ Open | Not yet tried by the user after the change · 26 Sep's open tracking issues unchanged |
+| ✅ On GitHub | Pushed the same day |
+
+| # | 🧩 Problem | 🔧 Fix | 📈 Result |
+|---|---|---|---|
+| 1 | "The app is very hard to use": unclear where to start and what to click | 🔍 Each video had 4 equal buttons; the blue one, **Track**, re-ran a tracked video; the picture opened set-up | The user's 18:55 re-run of `albin_fedor` was exactly that |
+| 2 | No starting point | Library guide ① add a video → ② track it → ③ see the results, current step lit, one sentence on what to do | Empty, untracked, tracking and done states checked at 1280×650 |
+| 3 | 4 equal buttons per video | One blue button for the next step (Track → Watch progress → See results); the picture does the same; the rest are small links | Clicked through Track → progress → results on a fresh workspace |
+| 4 | "Upload" beside "Add footage"; "Runs"; 6 buttons over the results | One **Add videos** dialog; Runs → **Results**; one **Download** menu; set-up and results pages say what to do | README text and screenshot updated |
+| 5 | Live showed "null" and a broken picture before starting | A missing name was passed to the page as `null`; the empty picture is hidden | Fixed; no JavaScript errors on any page |
 
 ---
 

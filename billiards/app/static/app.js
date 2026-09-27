@@ -331,7 +331,7 @@ async function uploadFiles(files) {
 }
 
 function openAddDialog(onAdded) {
-  const input = h("input", { type: "text", placeholder: "C:\\Videos\\pool   or   C:\\Videos\\match.mp4", style: { width: "100%" } });
+  const input = h("input", { type: "text", placeholder: "C:\\Videos\\pool   or   C:\\Videos\\match.mp4", style: { flex: "1" } });
   const list = h("div", { class: "browser-list" });
   const where = h("div", { class: "small muted ellipsis" });
   const addHere = h("button", { class: "btn sm", disabled: true }, icon("folder"), "Add this folder");
@@ -372,14 +372,23 @@ function openAddDialog(onAdded) {
   const addTyped = async () => { if (input.value.trim()) { await addPath(input.value.trim()); input.value = ""; } };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") addTyped(); });
 
-  const m = modal("Add footage", [
-    h("div", { class: "field" }, h("span", null, "A video file, or a folder of them"),
-      h("div", { class: "btn-row" }, input, h("button", { class: "btn primary", onclick: addTyped }, "Add"))),
-    h("div", { class: "field" }, h("span", null, "…or pick one"), h("div", { class: "btn-row" }, where, h("span", { style: { flex: 1 } }), addHere), list),
-    h("div", { class: "small muted" }, "A folder is scanned for videos each time the library opens (not its sub-folders). You can also drop video files anywhere on this page."),
+  const fileInput = h("input", { type: "file", accept: "video/*", multiple: true, hidden: true });
+  fileInput.addEventListener("change", async () => {
+    const added = await uploadFiles(fileInput.files);
+    fileInput.value = "";
+    if (added.length) { m.close(); onAdded && onAdded({ added: added[0] }); }
+  });
+
+  const m = modal("Add videos", [
+    h("div", { class: "field" }, h("span", null, "A video on this computer"),
+      h("div", { class: "btn-row" }, h("button", { class: "btn primary", onclick: () => fileInput.click() }, icon("upload"), "Choose video files…"),
+        h("span", { class: "small muted" }, "or drop them anywhere on the page")), fileInput),
+    h("div", { class: "field" }, h("span", null, "Or list a whole folder, or a file where it is, without copying it"),
+      h("div", { class: "btn-row" }, input, h("button", { class: "btn", onclick: addTyped }, "Add"))),
+    h("div", { class: "field" }, h("div", { class: "btn-row" }, where, h("span", { style: { flex: 1 } }), addHere), list),
+    h("div", { class: "small muted" }, "A folder is scanned for videos each time the library opens (not its sub-folders)."),
   ], [h("button", { class: "btn", onclick: () => m.close() }, "Done")]);
   browse(store.get("browse", ""));
-  input.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -390,19 +399,18 @@ function viewLibrary(main, life) {
   const search = h("input", { type: "search", placeholder: "Filter by name", value: store.get("filter", "") });
   const folders = h("div", { class: "chips" });
   const grid = h("div", { class: "grid" });
-  const fileInput = h("input", { type: "file", accept: "video/*", multiple: true, hidden: true });
+  const guide = h("div");
+  const addBtn = h("button", { class: "btn", onclick: () => openAddDialog(load) }, icon("plus"), "Add videos");
   let data = { videos: [], folders: [] };
 
   main.append(
     h("div", { class: "page-head" },
-      h("div", null, h("h1", null, "Library"), h("div", { class: "sub" }, "Your footage. Track a video as it is, or set it up first.")),
-      h("div", { class: "spacer" }),
-      h("button", { class: "btn", onclick: () => fileInput.click() }, icon("upload"), "Upload"),
-      h("button", { class: "btn primary", onclick: () => openAddDialog(load) }, icon("plus"), "Add footage")),
+      h("div", null, h("h1", null, "Library"), h("div", { class: "sub" }, "Your videos. Pick one and track it; its results open when it is done.")),
+      h("div", { class: "spacer" }), addBtn),
+    guide,
     h("div", { class: "toolbar" }, search, folders),
-    grid, fileInput);
+    grid);
 
-  fileInput.addEventListener("change", async () => { await uploadFiles(fileInput.files); fileInput.value = ""; load(); });
   search.addEventListener("input", () => { store.set("filter", search.value); render(); });
   life.onEnd(() => { window.onLibraryChanged = null; });
   window.onLibraryChanged = load;
@@ -422,24 +430,46 @@ function viewLibrary(main, life) {
           onclick: async () => { await api("POST", "/api/folders/remove", { path: f }); load(); },
         }, "×")));
     }
+    renderGuide();
+    addBtn.classList.toggle("primary", !data.videos.length);
     const q = search.value.trim().toLowerCase();
     const vids = data.videos.filter((v) => !q || v.name.toLowerCase().includes(q));
     grid.innerHTML = "";
     if (!data.videos.length) {
       grid.append(h("div", { class: "empty", style: { gridColumn: "1 / -1" } },
         h("div", { class: "big" }, "No videos yet"),
-        h("div", null, "Add a folder of footage, or drop video files onto this page."),
-        h("button", { class: "btn primary", onclick: () => openAddDialog(load) }, icon("plus"), "Add footage")));
+        h("div", null, "Drop a video file anywhere on this page, or press Add videos."),
+        h("button", { class: "btn primary", onclick: () => openAddDialog(load) }, icon("plus"), "Add videos")));
       return;
     }
     if (!vids.length) grid.append(h("div", { class: "muted" }, "Nothing matches that filter."));
     for (const v of vids) grid.append(card(v));
   }
 
+  // Where the user is in "add a video, track it, see the results", and what to do next.
+  function renderGuide() {
+    const vids = data.videos.filter((v) => !v.error);
+    const running = vids.find((v) => v.active_run);
+    const tracked = vids.some((v) => v.last_run);
+    let step, text;
+    if (!vids.length) { step = 1; text = "Start by adding a video: drop the file anywhere on this page, or press Add videos."; }
+    else if (running) { step = 2; text = h("span", null, "Tracking ", h("b", null, running.name), ". Its results open when it is done; you can look around meanwhile."); }
+    else if (!tracked) { step = 2; text = h("span", null, "Press ", h("b", null, "Track"), " on a video. It needs no set-up, and takes about as long as the video plays."); }
+    else { step = 3; text = h("span", null, "Press ", h("b", null, "See results"), " on a video to watch it back with every shot, cushion and pot. Or press ", h("b", null, "Track"), " on one you have not tracked yet."); }
+    const labels = ["Add a video", "Track it", "See the results"];
+    guide.replaceChildren(h("div", { class: "guide panel" },
+      h("ol", { class: "steps" }, labels.map((label, i) =>
+        h("li", { class: i + 1 < step ? "done" : i + 1 === step ? "now" : "" }, h("span", { class: "n" }, i + 1 < step ? "✓" : String(i + 1)), label))),
+      h("div", { class: "guide-text" }, text)));
+  }
+
   function card(v) {
-    const open = () => { location.hash = `#/video/${v.id}`; };
+    // The picture does what the blue button does, except start a run: results
+    // once there are some, the progress while it tracks, else the set-up preview.
+    const target = v.active_run ? `#/run/${v.active_run.id}` : v.last_run ? `#/run/${v.last_run.id}` : `#/video/${v.id}`;
+    const open = () => { location.hash = target; };
     const img = h("img", { src: `/api/videos/${v.id}/thumb.jpg`, alt: "", loading: "lazy" });
-    const thumb = h("div", { class: "thumb", onclick: open }, img,
+    const thumb = h("div", { class: "thumb", onclick: open, title: v.last_run ? "See the results" : v.active_run ? "Watch it being tracked" : "Check the table before tracking" }, img,
       v.duration_s ? h("span", { class: "badge" }, fmtClock(v.duration_s).replace(/\.\d+$/, "")) : null);
     img.addEventListener("error", () => { img.remove(); thumb.prepend(h("div", { class: "noimg" }, v.error ? "cannot be read" : "no preview")); });
 
@@ -462,21 +492,31 @@ function viewLibrary(main, life) {
         location.hash = `#/run/${job.id}`;
       } catch { /* toast shown */ }
     };
+    const forget = async () => {
+      if (!confirm(`Remove ${v.name} from the library? The file itself is kept.`)) return;
+      await api("POST", "/api/videos/forget", { id: v.id });
+      load();
+    };
+    // One obvious next step per video; everything else is a quiet link.
+    let main_, more;
+    if (v.active_run) {
+      main_ = h("a", { class: "btn primary", href: target }, "Watch progress");
+      more = [];
+    } else if (v.last_run) {
+      main_ = h("a", { class: "btn primary", href: target }, icon("play"), "See results");
+      more = [h("button", { class: "link", onclick: track }, "Track again"), h("a", { class: "link", href: `#/video/${v.id}` }, "Change set-up")];
+    } else {
+      main_ = h("button", { class: "btn primary", onclick: track, disabled: !!v.error }, "Track");
+      more = v.error ? [] : [h("a", { class: "link", href: `#/video/${v.id}` }, "Check the table first")];
+    }
     return h("div", { class: "card panel" }, thumb,
       h("div", { class: "card-body" },
         h("div", { class: "card-title", title: v.path, onclick: open }, v.name),
         h("div", { class: "card-meta" }, v.error ? v.folder : `${v.width}×${v.height} · ${fmtFps(v.fps)} · ${fmtBytes(v.size_bytes)}`),
         h("div", { class: "card-status" }, status),
-        h("div", { class: "card-actions" },
-          v.active_run
-            ? h("a", { class: "btn primary sm", href: `#/run/${v.active_run.id}` }, "Watch")
-            : h("button", { class: "btn primary sm", onclick: track, disabled: !!v.error }, "Track"),
-          h("a", { class: "btn sm", href: `#/video/${v.id}` }, "Set up"),
-          v.last_run ? h("a", { class: "btn sm", href: `#/run/${v.last_run.id}` }, "Results") : null,
-          h("button", {
-            class: "btn sm ghost", title: "Remove from the library (the file is kept)", "aria-label": "Remove from library",
-            onclick: async () => { await api("POST", "/api/videos/forget", { id: v.id }); load(); },
-          }, icon("x")))));
+        h("div", { class: "card-actions" }, main_,
+          h("div", { class: "card-more" }, more,
+            h("button", { class: "link quiet", title: "Remove from the library (the file is kept)", onclick: forget }, "Remove")))));
   }
 
   load();
@@ -631,6 +671,7 @@ function viewSetup(main, life, vid) {
   const formPanel = h("div", { class: "panel panel-pad stack" });
   const runsPanel = h("div", { class: "panel panel-pad stack" });
   const trackBtn = h("button", { class: "btn primary", disabled: true }, "Track this video");
+  const lastLink = h("a", { class: "btn", hidden: true }, icon("play"), "See the last results");
   const title = h("h1", { class: "ellipsis" }, "…");
   let mask = false;
   const chips = h("div", { class: "chips" },
@@ -640,7 +681,11 @@ function viewSetup(main, life, vid) {
 
   main.append(
     h("div", { class: "crumbs" }, h("a", { href: "#/library" }, "Library"), " / set up"),
-    h("div", { class: "page-head" }, title, h("div", { class: "spacer" }), trackBtn),
+    h("div", { class: "page-head" },
+      h("div", { style: { minWidth: 0, flex: "1 1 380px" } }, title,
+        h("div", { class: "sub" }, "Check that the blue outline sits on the playing surface, then press ", h("b", null, "Track this video"),
+          ". If it is off, press ", h("b", null, "Place corners by hand"), " on the right.")),
+      h("div", { class: "btn-row", style: { flexWrap: "nowrap" } }, lastLink, trackBtn)),
     h("div", { class: "split" },
       h("div", null, stage.el,
         h("div", { class: "stage-bar" }, slider, timeLabel,
@@ -738,8 +783,11 @@ function viewSetup(main, life, vid) {
     let runs = [];
     try { runs = (await api("GET", "/api/runs", undefined, { quiet: true })).runs.filter((r) => r.video_id === vid); } catch { return; }
     runsPanel.innerHTML = "";
-    runsPanel.append(h("h2", null, "Runs of this video"));
-    if (!runs.length) { runsPanel.append(h("div", { class: "small muted" }, "None yet.")); return; }
+    runsPanel.append(h("h2", null, "Results of this video"));
+    const done = runs.find((r) => r.status === "done");
+    lastLink.hidden = !done;
+    if (done) lastLink.href = `#/run/${done.id}`;
+    if (!runs.length) { runsPanel.append(h("div", { class: "small muted" }, "Not tracked yet.")); return; }
     for (const r of runs.slice(0, 6)) {
       runsPanel.append(h("a", { href: `#/run/${r.id}`, class: "status-line", style: { color: "var(--text)" } },
         statusPill(r.status), h("span", { class: "small" }, fmtWhen(r.started || r.created)),
@@ -955,7 +1003,7 @@ function viewRun(main, life, rid, query) {
   let state = null, shown = null;
   const head = h("div");
   const body = h("div");
-  main.append(h("div", { class: "crumbs" }, h("a", { href: "#/runs" }, "Runs"), " / run"), head, body);
+  main.append(h("div", { class: "crumbs" }, h("a", { href: "#/runs" }, "Results"), " / one video"), head, body);
 
   async function poll() {
     try { state = await api("GET", `/api/runs/${rid}`, undefined, { quiet: shown !== null }); } catch (e) {
@@ -980,7 +1028,7 @@ function viewRun(main, life, rid, query) {
     const balls = h("div", { class: "stack", style: { gap: "6px" } });
     const feed = h("div", { class: "feed" });
     head.append(h("div", { class: "page-head" },
-      h("div", null, h("h1", null, state.video_name), h("div", { class: "sub" }, "Tracking. The results open here when it finishes.")),
+      h("div", null, h("h1", null, state.video_name), h("div", { class: "sub" }, "Tracking. The results open on this page when it finishes; you can leave it and come back.")),
       h("div", { class: "spacer" }), pill,
       h("button", { class: "btn danger", onclick: async () => { await api("POST", `/api/runs/${rid}/cancel`); toast("Stopping; what was tracked so far is kept."); } }, icon("stop"), "Stop")));
     body.append(h("div", { class: "results" },
@@ -1070,17 +1118,22 @@ function results(main, life, head, body, state, viewer, rid, params = new URLSea
 
   // Header
   const tail = state.video_file ? state.video_file : null;
+  const download = h("details", { class: "menu" },
+    h("summary", { class: "btn sm" }, icon("download"), "Download"),
+    h("div", { class: "menu-list panel" },
+      tail ? h("a", { href: `/api/runs/${rid}/files/${tail}` }, "The tracked video") : null,
+      h("a", { href: `/api/runs/${rid}/files/tracks.csv` }, "Every ball, every frame (CSV)"),
+      h("a", { href: `/api/runs/${rid}/files/run.json` }, "Shots and events (JSON)")));
+  life.on(document, "click", (e) => { if (!download.contains(e.target)) download.open = false; });
   head.append(h("div", { class: "page-head" },
     h("div", { style: { minWidth: 0 } }, h("h1", { class: "ellipsis" }, state.video_name),
-      h("div", { class: "sub" }, statusPill(state.status), " ", fmtWhen(state.finished), state.message ? ` · ${state.message}` : "")),
+      h("div", { class: "sub", title: state.message || "" }, statusPill(state.status), " ", fmtWhen(state.finished),
+        " · press play, or click any event to jump to it")),
     h("div", { class: "spacer" }),
     unitsToggle(() => refreshAll()),
-    h("div", { class: "btn-row" },
-      tail ? h("a", { class: "btn sm", href: `/api/runs/${rid}/files/${tail}` }, icon("download"), "Video") : null,
-      h("a", { class: "btn sm", href: `/api/runs/${rid}/files/tracks.csv` }, icon("download"), "CSV"),
-      h("a", { class: "btn sm", href: `/api/runs/${rid}/files/run.json` }, icon("download"), "JSON"),
-      state.live ? null : h("a", { class: "btn sm", href: `#/video/${state.video_id}` }, "Set up & track again"),
-      h("button", { class: "btn sm ghost danger", onclick: async () => { if (confirm("Delete this run and its files?")) { await api("DELETE", `/api/runs/${rid}`); location.hash = "#/runs"; } } }, "Delete"))));
+    h("div", { class: "btn-row" }, download,
+      state.live ? null : h("a", { class: "btn sm", href: `#/video/${state.video_id}` }, "Change set-up"),
+      h("button", { class: "btn sm ghost danger", onclick: async () => { if (confirm("Delete these results and their files?")) { await api("DELETE", `/api/runs/${rid}`); location.hash = "#/runs"; } } }, "Delete"))));
 
   const seconds = (last - first) / fps;
   body.append(h("div", { class: "statgrid", style: { marginBottom: "14px" } },
@@ -1355,7 +1408,7 @@ function unitsToggle(onChange) {
 function viewRuns(main, life) {
   const list = h("div");
   main.append(h("div", { class: "page-head" },
-    h("div", null, h("h1", null, "Runs"), h("div", { class: "sub" }, "Every video tracked, newest first. Runs keep going while you look at other pages.")),
+    h("div", null, h("h1", null, "Results"), h("div", { class: "sub" }, "Every video you have tracked, newest first. Click one to watch it back.")),
     h("div", { class: "spacer" }), h("a", { class: "btn", href: "#/library" }, "Track another video")), list);
   let runs = [];
   async function load() {
@@ -1378,7 +1431,7 @@ function viewRuns(main, life) {
         h("td", { class: "small" }, r.status === "done" || r.status === "cancelled" ? `${plural(b.tracks || 0, "ball")} · ${plural(shotsN, "shot")} · ${b.events ? (b.events.pot || 0) + " pots" : ""}` : active ? `${Math.round(100 * (r.progress || 0))}%` : ""),
         h("td", { class: "num" }, active
           ? h("button", { class: "btn sm danger", onclick: async () => { await api("POST", `/api/runs/${r.id}/cancel`); load(); } }, "Stop")
-          : h("button", { class: "btn sm ghost", onclick: async () => { if (confirm("Delete this run and its files?")) { await api("DELETE", `/api/runs/${r.id}`); load(); } } }, "Delete"))));
+          : h("button", { class: "btn sm ghost", onclick: async () => { if (confirm("Delete these results and their files?")) { await api("DELETE", `/api/runs/${r.id}`); load(); } } }, "Delete"))));
     }
     table.append(tb);
     list.append(table);
@@ -1403,7 +1456,7 @@ function viewLive(main, life) {
     h("button", { class: cfg.kind === k ? "on" : "", onclick: (e) => { cfg.kind = k; [...kindSeg.children].forEach((b) => b.classList.toggle("on", b === e.target)); save(); renderSource(); } }, label)));
   const startBtn = h("button", { class: "btn primary" }, icon("play"), "Start");
   const stopBtn = h("button", { class: "btn danger" }, icon("stop"), "Stop");
-  const record = h("label", { class: "check" }, h("input", { type: "checkbox", checked: cfg.record, onchange: (e) => { cfg.record = e.target.checked; save(); } }), "Save the session as a run");
+  const record = h("label", { class: "check" }, h("input", { type: "checkbox", checked: cfg.record, onchange: (e) => { cfg.record = e.target.checked; save(); } }), "Keep the session in Results");
   const cornersBox = h("div", { class: "stack", style: { gap: "8px" } });
 
   const img = h("img", { class: "live-img", alt: "The live picture, tracked" });
@@ -1428,7 +1481,7 @@ function viewLive(main, life) {
         h("div", { class: "btn-row" }, startBtn, stopBtn),
         h("div", { class: "panel panel-pad stack" }, h("h2", null, "Corners"), cornersBox)),
       h("div", { class: "stack" },
-        h("div", { class: "player" }, img, idle),
+        h("div", { class: "player live" }, img, idle),
         h("div", { class: "panel panel-pad stack", style: { gap: "6px" } }, statusLine, numbers), after,
         h("div", { class: "panel panel-pad" }, h("h3", null, "From above"), h("div", { style: { marginTop: "8px" } }, overhead))),
       h("div", { class: "stack" }, shotBox,
@@ -1542,11 +1595,13 @@ function viewLive(main, life) {
     const key = on ? String(s.started) : null;
     if (key !== streamKey) {
       streamKey = key;
-      img.src = on ? `/api/live/stream.mjpg?s=${s.started}` : "";
+      if (on) img.src = `/api/live/stream.mjpg?s=${s.started}`;
+      else img.removeAttribute("src");
     }
-    idle.hidden = on || (s.status !== "idle" && !!img.src);
+    img.hidden = !img.getAttribute("src");
+    idle.hidden = on || (s.status !== "idle" && !!img.getAttribute("src"));
     idle.textContent = s.status === "idle" ? "Choose a source and press Start." : s.message || "";
-    statusLine.replaceChildren(statusPill(s.status), h("span", { class: "small" }, s.message || ""), s.source_name ? h("span", { class: "small muted" }, `· ${s.source_name}`) : null);
+    statusLine.replaceChildren(statusPill(s.status), h("span", { class: "small" }, s.message || ""), ...(s.source_name ? [h("span", { class: "small muted" }, `· ${s.source_name}`)] : []));
     numbers.textContent = s.status === "idle" ? "" : `in ${s.fps_in ?? 0} fps · tracked ${s.fps_out ?? 0} fps · ${s.frames_processed ?? 0} frames · ${s.frames_skipped ?? 0} skipped`;
     shotBox.hidden = !s.shot; shotBox.textContent = s.shot || "";
     balls.replaceChildren(...(s.balls || []).map((b) => h("div", null,
@@ -1587,12 +1642,12 @@ function viewHelp(main) {
     h("div", { class: "help" },
       h("div", { class: "panel panel-pad" }, h("h2", null, "Getting started"),
         h("ol", null,
-          h("li", null, h("b", null, "Add footage"), " in the Library: a folder of videos, single files, or drop them onto the page."),
-          h("li", null, h("b", null, "Track"), " a video. It usually needs nothing else: the table, the cloth and the balls are found from the video itself."),
-          h("li", null, "Watch it being tracked, or leave it: runs carry on in the background, one after another."),
-          h("li", null, "The ", h("b", null, "results"), " page plays the tracked video beside a top-down view of the table, with every shot, contact, cushion and pot on a timeline you can click."))),
+          h("li", null, h("b", null, "Add videos"), " in the Library, or drop video files anywhere on the page."),
+          h("li", null, "Press ", h("b", null, "Track"), " on a video. It usually needs nothing else: the table, the cloth and the balls are found from the video itself."),
+          h("li", null, "Watch it being tracked, or leave it: tracking carries on in the background, one video after another."),
+          h("li", null, "Press ", h("b", null, "See results"), ". The tracked video plays beside a top-down view of the table, with every shot, contact, cushion and pot on a timeline you can click. Everything you have tracked is under ", h("b", null, "Results"), " on the left."))),
       h("div", { class: "panel panel-pad" }, h("h2", null, "When the table is not found, or the outline is off"),
-        h("p", null, "Open ", h("b", null, "Set up"), " for the video. The blue outline is the playing surface the tracker uses, on a frame you choose with the slider."),
+        h("p", null, "Press ", h("b", null, "Check the table first"), " (or ", h("b", null, "Change set-up"), ") on the video. The blue outline is the playing surface the tracker uses, on a frame you choose with the slider."),
         h("ul", null,
           h("li", null, "Turn on the ", h("b", null, "cloth mask"), " to see what was taken for cloth. If it is not the table, the lighting or a banner of the same colour is the problem."),
           h("li", null, h("b", null, "Place corners by hand"), " and drag them onto the corners of the playing surface, where the cushion noses meet."),
@@ -1605,7 +1660,7 @@ function viewHelp(main) {
           h("li", null, "720p or better. Screen recordings of broadcasts work: their repeated frames are detected and the real frame rate recovered."),
           h("li", null, "Hard cases: a ball the colour of the cloth, balls pressed against the far cushion, and hands resting on the table."))),
       h("div", { class: "panel panel-pad" }, h("h2", null, "Live"),
-        h("p", null, "Live tracks a camera (a webcam or USB camera), a network stream (RTSP, MJPEG, a phone camera app), or a library video replayed at its own pace to try things out. The table is found from the first few seconds. When tracking cannot keep up, frames are skipped rather than falling behind. Tick ", h("b", null, "Save the session"), " to keep it as a run.")),
+        h("p", null, "Live tracks a camera (a webcam or USB camera), a network stream (RTSP, MJPEG, a phone camera app), or a library video replayed at its own pace to try things out. The table is found from the first few seconds. When tracking cannot keep up, frames are skipped rather than falling behind. Tick ", h("b", null, "Keep the session in Results"), " to watch it back later.")),
       h("div", { class: "panel panel-pad" }, h("h2", null, "Keyboard, on the results page"),
         h("table", null,
           h("tr", null, h("td", null, h("kbd", null, "space")), h("td", null, "play / pause")),
