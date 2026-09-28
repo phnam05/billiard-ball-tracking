@@ -5,6 +5,13 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-28
 
+### Changed (evening): `python main.py` opens the app
+
+- **`python main.py` with no arguments opens the app**, as `python main.py
+  app` does. It used to print the usage and exit, so an IDE's Run button
+  (PyCharm's "main" configuration passes no arguments) never opened the app.
+  `python main.py clip.mp4 ...` and the other commands are unchanged.
+
 ### Fixed (late afternoon): the same balls across a broadcast's cuts
 
 - **A ball keeps its identity when the broadcast cuts away and back**, to

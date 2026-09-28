@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """Entry point for the billiard ball tracker.
 
+    python main.py                      # open the app in a browser
     python main.py clip.mp4 --show
     python main.py clip.mp4 -o out.mp4 --csv tracks.csv --json run.json
     python main.py calibrate clip.mp4 --save-preview calib.png

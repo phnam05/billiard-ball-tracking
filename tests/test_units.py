@@ -1257,3 +1257,24 @@ def test_a_frame_that_will_not_decode_mid_file_is_skipped(monkeypatch):
     monkeypatch.setattr(video, "open_capture", lambda path: Cap())
     got = [i for i, _ in video.read_frames("clip.mp4")]
     assert got == [0, 1, 3, 4, 5], got
+
+
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
+
+def test_main_py_on_its_own_opens_the_app(monkeypatch):
+    """An IDE's Run button starts `main.py` with no arguments; that printed the
+    usage and exited, so the app never opened."""
+    from billiards import cli
+
+    seen = {}
+
+    def fake_app(args):
+        seen["args"] = args
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_app", fake_app)
+    assert cli.main([]) == 0
+    assert seen["args"].command == "app"
+    assert seen["args"].port == 8765 and not seen["args"].no_browser

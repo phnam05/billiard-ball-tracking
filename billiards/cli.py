@@ -374,6 +374,9 @@ def cmd_dump_config(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # `python main.py` on its own (or an IDE's Run button) opens the app.
+    if not argv:
+        argv = ["app"]
     # Allow `billiards clip.mp4 -o out.mp4` as shorthand for the track command.
     known = {"track", "calibrate", "dump-config", "app"}
     if argv and argv[0] not in known and not argv[0].startswith("-"):

@@ -39,7 +39,8 @@ lets it track a YouTube link.
 ## The app
 
 ```bash
-python main.py app                        # opens http://127.0.0.1:8765/ in the browser
+python main.py                            # opens http://127.0.0.1:8765/ in the browser
+python main.py app --port 9000            # the same, with options
 python main.py app --folder D:/footage     # list the videos in another folder too
 ```
 
