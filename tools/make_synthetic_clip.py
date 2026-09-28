@@ -75,6 +75,17 @@ CLOTHS: Dict[str, Tuple[int, int, int]] = {
     "grey": (128, 124, 118),
 }
 
+#: What the table stands on, BGR, or None for the default grey carpet.
+#: ``blue`` is the royal-blue floor of the 2026 US Open (HSV 117/211/202,
+#: sampled from its broadcast): the same family of colour as a blue-grey cloth
+#: but far more saturated, and much more of it, so a tracker that takes the
+#: commonest hue for the cloth takes the floor.
+FLOORS: Dict[str, Optional[Tuple[int, int, int]]] = {
+    "carpet": None,
+    "blue": (202, 50, 35),
+    "red": (40, 30, 150),
+}
+
 #: The racks.  Each entry is (colour, number, striped).  ``standard`` is a
 #: standard ball set (4 purple, 5 orange, stripes with white caps);
 #: ``tv`` is the set in the sample broadcasts -- 4 pink, 5 purple, and stripes
@@ -289,10 +300,12 @@ class Renderer:
         camera: str = "end",
         seed: int = 0,
         parallax: bool = True,
+        floor_bgr: Optional[Tuple[int, int, int]] = None,
     ) -> None:
         self.out_size = out_size
         self.ppi = px_per_inch
         self.cloth = cloth_bgr
+        self.floor = floor_bgr
         self.rng = np.random.default_rng(seed)
 
         self.rail_in = 5.0
@@ -454,7 +467,8 @@ class Renderer:
         rng = np.random.default_rng(12345)
         grain = rng.normal(0.0, 7.0, (h // 4 + 1, w // 4 + 1, 1))
         grain = cv2.resize(grain, (w, h), interpolation=cv2.INTER_NEAREST)[..., None]
-        venue = np.clip(np.full((h, w, 3), 62.0) + grain, 0, 255)
+        base = np.array(self.floor if self.floor is not None else (62.0, 62.0, 62.0), np.float64)
+        venue = np.clip(np.broadcast_to(base, (h, w, 3)) + grain, 0, 255)
         banner_h = int(h * 0.16)
         colours = [(150, 60, 30), (40, 40, 40), (160, 80, 20), (30, 30, 150), (150, 60, 30)]
         width = w // len(colours) + 1
@@ -692,6 +706,7 @@ def generate(
     camera: str = "end",
     ball_set: str = "standard",
     cloth: str = "broadcast",
+    floor: str = "carpet",
 ) -> Dict[str, object]:
     """Simulate a break and write it as a video, with ground truth.
 
@@ -708,7 +723,7 @@ def generate(
     balls = make_break_rack(seed, ball_set)
     sim = Simulation(balls, seed=seed)
     renderer = Renderer(out_size=(width, height), seed=seed, camera=camera,
-                        cloth_bgr=CLOTHS[cloth])
+                        cloth_bgr=CLOTHS[cloth], floor_bgr=FLOORS[floor])
     retimed = container_fps is not None
     file_fps = float(container_fps) if retimed else fps
 
@@ -888,6 +903,9 @@ def main() -> int:
                    help="broadcast: the sample clips' blue-grey cloth; green: "
                         "the simulator's cloth until 23 Sep 2026; blue, red, tan, "
                         "grey: other cloths")
+    p.add_argument("--floor", choices=sorted(FLOORS), default="carpet",
+                   help="what the table stands on: grey carpet, or the 2026 US "
+                        "Open's royal-blue floor, or a red one")
     p.add_argument("--duration", type=float, default=6.0)
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
@@ -902,7 +920,7 @@ def main() -> int:
         events_path=Path(args.events) if args.events else None,
         container_fps=args.container_fps, drop_rate=args.drop_rate,
         capture_jitter=args.capture_jitter, camera=args.camera,
-        ball_set=args.ball_set, cloth=args.cloth,
+        ball_set=args.ball_set, cloth=args.cloth, floor=args.floor,
     )
     for k, v in info.items():
         print(f"{k}: {v}")

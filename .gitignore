@@ -240,3 +240,6 @@ runs/
 *_calibration.json
 results/
 billiards-workspace/
+
+# Footage downloaded by tools/venues.py
+.cache/

@@ -1777,6 +1777,199 @@
           "skipped_source_frames": 12
         }
       }
+    },
+    {
+      "id": "2026-09-28T10:04:04+07:00",
+      "commit": "1387635",
+      "dirty": true,
+      "note": "28 Sep: the cloth is chosen among several colours by how table-like its outline is (a blue-grey cloth on the US Open's royal-blue floor, grey on the UK Open's red one); calibration uses the biggest group of frames that agree (one camera); a table re-found after a cut must not run off the picture, and a zoom until it does pauses tracking",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 403,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 31.148,
+            "moving_repeats": 29,
+            "evidence_frames": 18,
+            "skipped_source_frames": 6
+          },
+          "frames_view_lost": 54,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 4,
+            "cushion": 2
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 2 contacts -- nothing potted -- 2.1s",
+            "shot 2: CUE struck -- hit the 5 first -- 2 cushions -- 2 contacts -- nothing potted -- 5.4s"
+          ],
+          "processing_fps": 35.74,
+          "tracks_reported": 7,
+          "short_tracks": [],
+          "peak_speed_in_s": 406.1,
+          "speed_jitter_in_s": {
+            "mean": 12.78,
+            "max": 270.9,
+            "samples": 159
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 1.516,
+            "samples": 3856
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 23.976,
+            "moving_repeats": 27,
+            "evidence_frames": 29,
+            "skipped_source_frames": 3
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "collision": 3,
+            "ball_struck": 3,
+            "cushion": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 4 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 0.15,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.9,
+          "speed_jitter_in_s": {
+            "mean": 3.76,
+            "max": 88.9,
+            "samples": 300
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.416,
+            "samples": 2695
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 277,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.168,
+            "moving_repeats": 57,
+            "evidence_frames": 33,
+            "skipped_source_frames": 34
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 10.2s"
+          ],
+          "processing_fps": 33.64,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.4,
+          "speed_jitter_in_s": {
+            "mean": 3.07,
+            "max": 35.8,
+            "samples": 235
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.356,
+            "samples": 3386
+          }
+        }
+      },
+      "open_issues": [],
+      "ground_truth": {
+        "recall": 0.8457,
+        "precision": 1.0,
+        "mota": 0.8444,
+        "id_switches": 2,
+        "position_error_in_median": 0.301,
+        "speed_error_median_relative": 0.0271,
+        "speed_error_p95_in_s": 10.02,
+        "events_found": {
+          "collision": "4/6 (+3 false)",
+          "cushion": "20/23 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.8221,
+        "precision": 0.9935,
+        "mota": 0.8157,
+        "id_switches": 2,
+        "position_error_in_median": 0.211,
+        "speed_error_median_relative": 0.0488,
+        "speed_error_p95_in_s": 18.68,
+        "events_found": {
+          "collision": "2/5 (+3 false)",
+          "cushion": "15/21 (+0 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 81,
+          "evidence_frames": 101,
+          "skipped_source_frames": 12
+        }
+      }
     }
   ],
   "clips": {

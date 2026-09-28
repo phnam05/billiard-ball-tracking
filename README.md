@@ -248,7 +248,8 @@ ground truth (4 s of play each, so a little lower than the table above):
 |---|---|
 | Blue-grey cloth, end camera, 720p, 30 fps (the sample clips' conditions) | 0.81 |
 | Green / tournament-blue / burgundy / camel cloth | 0.87 / 0.87 / 0.86 / 0.74 |
-| Grey cloth | refused (no hue to find the table by); **0.79** with corners placed by hand |
+| Grey cloth | 0.79 |
+| The sample clips' cloth on a royal-blue floor (the 2026 US Open) / green cloth on a red floor | 0.81 / 0.86 |
 | Camera across from a long rail / on the ceiling | 0.72 / 0.88 |
 | Tripod at a corner, table small in the picture | 0.57 |
 | 854×480 / 1920×1080 | 0.77 / 0.79 |
@@ -257,6 +258,20 @@ ground truth (4 s of play each, so a little lower than the table above):
 
 ```bash
 python tools/robustness.py    # writes reports/robustness.json and results/robustness.png
+```
+
+A simulator only varies what it was built to vary: until 28 Sep its table
+always stood on grey carpet, and the first clip from another event, the 2026
+US Open, tracked nothing (its royal-blue floor was taken for the cloth).
+`tools/venues.py` tracks one real minute from each of 11 venues: the sample
+clips' event, the WPA final, the US Open, Mosconi Cup, Premier League Pool,
+UK Open, Hanoi Open, a heyball final, an old Derby City Classic match, an
+amateur bar-box game and snooker. There is no ground truth, so it reports
+whether the table was found and how, and what was counted, with one frame of
+each in `results/venues.png`. The table is found at all 11.
+
+```bash
+python tools/venues.py        # downloads the minutes once, into .cache/venues/
 ```
 
 Per-variant recall, position and speed error, ball numbers and events are in
@@ -321,8 +336,10 @@ whether it looks right. `--no-render` skips that when you only want numbers.
   (`albin_fedor`'s 5). The app's *Look for balls against the far cushion*
   (`detector.search_raised_bed`) finds them, but can also take a black ball's
   shadow or a hand on the rail for a ball, so it is off by default.
-- **Grey cloth** has no hue to find the table by: the tracker refuses the
-  footage rather than guess, and tracks it once the corners are placed by hand.
+- **Highlight reels and other venues** (`tools/venues.py`, below): the table
+  is found at all 11 venues tried, but every camera cut starts the tracks
+  over, so a minute lists more balls than the table has, and hands on the
+  rail and a tight rack add phantoms.
 - **A camera at a corner of the table**, with the table small in the picture,
   tracks worst of the views tried (MOTA 0.57; see *Other footage* above).
 - **A faint cushion-nose line**, at low resolution or from a skewed view, can

@@ -1,0 +1,355 @@
+{
+ "what_this_is": "One minute from each of several venues, tracked with default settings. No ground truth: see tools/venues.py for what each number means.",
+ "updated": "2026-09-28T10:17:45+07:00",
+ "venues": [
+  {
+   "name": "sample",
+   "what": "albin_fedor.mp4: the sample clips' venue, for comparison",
+   "url": "albin_fedor.mp4",
+   "part": [
+    null,
+    null
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    109.69,
+    27.0,
+    177.0
+   ],
+   "cloth_score": 0.8869,
+   "rails_with_nose": 3,
+   "ball_px": 21.3,
+   "in_view": 0.928,
+   "recalibrations": 0,
+   "balls": 7,
+   "shots": 2,
+   "events": {
+    "ball_struck": 3,
+    "collision": 4,
+    "cushion": 2
+   },
+   "ball_set": "tv",
+   "tracking_fps": 43.4,
+   "frame_shown": 164
+  },
+  {
+   "name": "wpa-2026",
+   "what": "2026 WPA 10-ball final, Box Billiards: the first link tried",
+   "url": "https://www.youtube.com/watch?v=d5TyZPetBkA",
+   "part": [
+    "20:00",
+    "21:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    96.17,
+    235.0,
+    191.0
+   ],
+   "cloth_score": 0.6845,
+   "rails_with_nose": 3,
+   "ball_px": 17.7,
+   "in_view": 0.781,
+   "recalibrations": 5,
+   "balls": 13,
+   "shots": 3,
+   "events": {
+    "ball_struck": 4,
+    "collision": 5,
+    "cushion": 6,
+    "pot": 3
+   },
+   "ball_set": "standard",
+   "tracking_fps": 52.0,
+   "frame_shown": 598
+  },
+  {
+   "name": "us-open",
+   "what": "2026 US Open: blue-grey cloth on a royal-blue floor",
+   "url": "https://www.youtube.com/watch?v=nuyq2hp9rLI",
+   "part": [
+    "11:48",
+    "12:48"
+   ],
+   "calibrated": true,
+   "cloth": "colour at hue 106, saturation 40",
+   "cloth_hsv": [
+    102.98,
+    40.0,
+    180.0
+   ],
+   "cloth_score": 0.4689,
+   "rails_with_nose": 3,
+   "ball_px": 21.8,
+   "in_view": 0.918,
+   "recalibrations": 9,
+   "balls": 21,
+   "shots": 8,
+   "events": {
+    "collision": 40,
+    "ball_struck": 18,
+    "cushion": 35,
+    "pot": 6
+   },
+   "ball_set": "tv",
+   "tracking_fps": 35.4,
+   "frame_shown": 535
+  },
+  {
+   "name": "mosconi",
+   "what": "2025 Mosconi Cup, day one: arena, team event",
+   "url": "https://www.youtube.com/watch?v=aD2Q6PXwQGU",
+   "part": [
+    "5:00",
+    "6:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    116.79,
+    58.0,
+    201.0
+   ],
+   "cloth_score": 0.4234,
+   "rails_with_nose": 0,
+   "ball_px": 23.2,
+   "in_view": 0.701,
+   "recalibrations": 6,
+   "balls": 34,
+   "shots": 6,
+   "events": {
+    "collision": 37,
+    "ball_struck": 24,
+    "cushion": 6,
+    "pot": 5
+   },
+   "ball_set": "tv",
+   "tracking_fps": 63.2,
+   "frame_shown": 515
+  },
+  {
+   "name": "premier-league",
+   "what": "2026 Premier League Pool final",
+   "url": "https://www.youtube.com/watch?v=FOepzCM0aJ4",
+   "part": [
+    "5:00",
+    "6:00"
+   ],
+   "calibrated": true,
+   "cloth": "grey at brightness 164",
+   "cloth_hsv": [
+    0.0,
+    9.0,
+    176.0
+   ],
+   "cloth_score": 0.393,
+   "rails_with_nose": 4,
+   "ball_px": 23.3,
+   "in_view": 0.98,
+   "recalibrations": 9,
+   "balls": 31,
+   "shots": 7,
+   "events": {
+    "cushion": 8,
+    "collision": 74,
+    "ball_struck": 48,
+    "pot": 6
+   },
+   "ball_set": null,
+   "tracking_fps": 54.6,
+   "frame_shown": 1883
+  },
+  {
+   "name": "uk-open",
+   "what": "2025 UK Open final",
+   "url": "https://www.youtube.com/watch?v=vQzly86Nf2M",
+   "part": [
+    "10:00",
+    "11:00"
+   ],
+   "calibrated": true,
+   "cloth": "grey at brightness 252",
+   "cloth_hsv": [
+    0.0,
+    13.0,
+    152.0
+   ],
+   "cloth_score": 0.1129,
+   "rails_with_nose": 2,
+   "ball_px": 14.5,
+   "in_view": 0.424,
+   "recalibrations": 6,
+   "balls": 18,
+   "shots": 4,
+   "events": {
+    "collision": 15,
+    "cushion": 4,
+    "ball_struck": 11
+   },
+   "ball_set": "tv",
+   "tracking_fps": 59.5,
+   "frame_shown": 1432
+  },
+  {
+   "name": "hanoi-open",
+   "what": "2025 Hanoi Open: a Vietnamese production",
+   "url": "https://www.youtube.com/watch?v=sKqEOgr6Byc",
+   "part": [
+    "5:00",
+    "6:00"
+   ],
+   "calibrated": true,
+   "cloth": "colour at hue 138, saturation 40",
+   "cloth_hsv": [
+    138.8,
+    40.0,
+    188.0
+   ],
+   "cloth_score": 0.4199,
+   "rails_with_nose": 1,
+   "ball_px": 25.5,
+   "in_view": 0.411,
+   "recalibrations": 0,
+   "balls": 7,
+   "shots": 3,
+   "events": {
+    "ball_struck": 4,
+    "cushion": 1,
+    "pot": 1
+   },
+   "ball_set": "tv",
+   "tracking_fps": 75.2,
+   "frame_shown": 557
+  },
+  {
+   "name": "heyball",
+   "what": "2024 JOY Heyball Masters: Chinese 8-ball, its own table and balls",
+   "url": "https://www.youtube.com/watch?v=fI2_6S7Qjds",
+   "part": [
+    "20:00",
+    "21:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    60.76,
+    172.0,
+    166.0
+   ],
+   "cloth_score": 0.7559,
+   "rails_with_nose": 2,
+   "ball_px": 27.5,
+   "in_view": 0.84,
+   "recalibrations": 4,
+   "balls": 17,
+   "shots": 5,
+   "events": {
+    "ball_struck": 11,
+    "collision": 14,
+    "pot": 3,
+    "cushion": 2
+   },
+   "ball_set": "tv",
+   "tracking_fps": 56.6,
+   "frame_shown": 599
+  },
+  {
+   "name": "derby-city",
+   "what": "2016 Derby City Classic, Accu-Stats: older footage, another camera",
+   "url": "https://www.youtube.com/watch?v=tzuOFj7JmIM",
+   "part": [
+    "20:00",
+    "21:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    97.79,
+    218.0,
+    235.0
+   ],
+   "cloth_score": 0.2908,
+   "rails_with_nose": 0,
+   "ball_px": 30.0,
+   "in_view": 0.519,
+   "recalibrations": 8,
+   "balls": 38,
+   "shots": 3,
+   "events": {
+    "cushion": 25,
+    "ball_struck": 58,
+    "collision": 47,
+    "pot": 8
+   },
+   "ball_set": "standard",
+   "tracking_fps": 53.0,
+   "frame_shown": 3412
+  },
+  {
+   "name": "bar-box",
+   "what": "an amateur 8-ball tournament on a 7 ft bar table",
+   "url": "https://www.youtube.com/watch?v=wIBiOC0PV-I",
+   "part": [
+    "5:00",
+    "6:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    80.6,
+    214.0,
+    131.0
+   ],
+   "cloth_score": 0.8784,
+   "rails_with_nose": 0,
+   "ball_px": 27.4,
+   "in_view": 0.968,
+   "recalibrations": 2,
+   "balls": 31,
+   "shots": 4,
+   "events": {
+    "collision": 40,
+    "ball_struck": 16,
+    "cushion": 5,
+    "pot": 1
+   },
+   "ball_set": "tv",
+   "tracking_fps": 44.6,
+   "frame_shown": 1634
+  },
+  {
+   "name": "snooker",
+   "what": "2026 Wuhan Open snooker: 12 ft green table, snooker balls",
+   "url": "https://www.youtube.com/watch?v=fV2UHRBui_4",
+   "part": [
+    "10:00",
+    "11:00"
+   ],
+   "calibrated": true,
+   "cloth": "the commonest colour",
+   "cloth_hsv": [
+    65.84,
+    233.0,
+    179.0
+   ],
+   "cloth_score": 0.9261,
+   "rails_with_nose": 3,
+   "ball_px": 21.5,
+   "in_view": 0.965,
+   "recalibrations": 0,
+   "balls": 36,
+   "shots": 4,
+   "events": {
+    "ball_struck": 26,
+    "collision": 38,
+    "cushion": 26,
+    "pot": 2
+   },
+   "ball_set": "standard",
+   "tracking_fps": 35.3,
+   "frame_shown": 1156
+  }
+ ]
+}

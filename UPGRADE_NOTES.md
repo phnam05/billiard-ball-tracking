@@ -537,10 +537,11 @@ tools/
   evaluate.py              MOT, speed and event scoring against it
   run_report.py            noise metrics on the real clips, appended to a log
   robustness.py            the break under other cloths, cameras, sizes (§12.4)
+  venues.py                one real minute from each of 11 venues, no ground truth (§14)
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
 results/         rewritten by run_report.py; annotated video + data per clip
-tests/           149 tests
+tests/           152 tests
 ```
 
 `evaluate.py` and `run_report.py` answer different questions, and both are
@@ -931,3 +932,116 @@ diagram drawn in, 29.2 without it, 35.4 with no video written.
   untested.
 * The other computer needs `pip install "yt-dlp[default]"`, and Node.js or
   Deno for YouTube.
+
+---
+
+## 14. Other venues (28 Sep 2026): the cloth is not always the commonest colour
+
+The first link the user tracked from another tournament, the 2026 US Open,
+tracked nothing. They pointed out why this mattered: every real clip so far
+came from one event, and the app had never been tried at a venue with other
+lighting, another cloth or another ball set.
+
+### 14.1 What went wrong
+
+The cloth was measured as the commonest saturated hue in the picture. At the
+US Open that was the royal-blue floor (HSV 117/211/202). The cloth is
+blue-grey (103/42/186): nearly the sample clips' cloth, but much less of the
+picture. The "table" fitted to the floor ran off all four edges of the
+picture, and no cushion nose was found on any rail. The simulator never
+showed this, because its table always stood on grey carpet.
+
+### 14.2 Several colours tried, the most table-like kept — `table.choose_cloth`
+
+Tried as the cloth: the usual estimate; the 4 commonest colours by hue *and*
+saturation (a joint histogram, so a vivid floor and a dull cloth of the same
+hue are two colours); and the 2 commonest greys by brightness. Each is
+refined inside the region it selects, as the usual estimate is. Its outline
+is then fitted on every calibration frame and scored:
+
+`score = frames in the biggest agreeing group / frames × fill × 0.5 ** corners on the edge`
+
+and 0 with two or more corners on the edge, or when a ball on it would be
+under 3 px. A floor fails all three tests: it runs off the picture, its
+outline encloses the table (fill about 0.5), and its outline jumps from frame
+to frame. The usual estimate is kept unless another scores 1.25× higher, so
+footage that already worked is left alone.
+
+| Clip | Chosen | Score | Best other |
+|---|---|---|---|
+| US Open | hue 106, saturation 40 (the cloth) | 0.58 | the floor: 0.008 |
+| albin_fedor / fedor_jump / fedor_shot | the usual estimate | 0.89 / 0.95 / 0.92 | 0.85 / 0.81 / 0.66 |
+
+### 14.3 One camera, not the median of several
+
+The UK Open minute cuts between a corner camera, an end-rail camera and a
+low side camera. The per-corner median over the calibration frames was then
+an outline no camera saw, and no candidate had frames agreeing with it.
+Calibration now uses the biggest group of frames whose outlines agree with
+each other (seeded by the outline most others are within 4% of the picture
+diagonal of), and the tracker re-finds the table after each cut as before.
+On the sample clips the group is nearly every frame (23–25 of 25), so their
+corners are unchanged.
+
+### 14.4 A table that runs off the picture is not adopted
+
+The rule from 14.2 also applies after a cut and at the periodic re-check.
+Without it, a low close-up at the UK Open was taken for the table, and the
+ball icons of the score bar were tracked. If the periodic re-check finds the
+cloth running off the picture, the camera has zoomed in (the UK Open pushes
+in from the corner view over about 10 s). Tracking then pauses until the
+whole table is back in view. Tracked on the old outline, that zoom had put
+a row of "balls" on a rail, with 95 contacts between them in 10 s.
+
+### 14.5 Measured
+
+`tools/robustness.py`, simulated, scored against ground truth (MOTA):
+
+| Variant | Before | After |
+|---|---|---|
+| grey cloth | table not found | **0.79** (0.79 before with corners placed by hand) |
+| sample clips' cloth on a royal-blue floor (new) | 0.00 | **0.81** |
+| green cloth on a red floor (new) | 0.00 | **0.86** |
+| the other 13 variants | | identical to 26 Sep, to 4 decimals |
+
+`tools/run_report.py --ground-truth`: synthetic 0.844 / 0.816 as on 26 Sep;
+the three sample clips report the same tracks, events and shots.
+
+`tools/venues.py` (new): one minute from each of 11 venues, tracked the way
+the app tracks, with no ground truth. It reports whether the table was found,
+cushion noses per rail, time in view, and the balls, shots and events
+reported. All 11 were found. At 4 venues (US Open, UK Open, Premier League,
+Hanoi Open: grey or near-grey cloth) the usual estimate was a floor or a
+wall that ran off the picture (score 0), and another candidate was chosen.
+The US Open failed with the old code. The UK Open failed with the first
+version of this change, which kept the usual estimate (the red floor) there,
+as the old code would have. The Premier League and Hanoi Open were first run
+with the new code. The sample clips' venue
+and the WPA final keep the usual estimate.
+
+| Venue | Rails with a nose | In view | Balls | Shots | Pots |
+|---|---|---|---|---|---|
+| sample (albin_fedor) | 3/4 | 93% | 7 | 2 | 0 |
+| 2026 WPA final | 3/4 | 78% | 13 | 3 | 3 |
+| 2026 US Open | 3/4 | 92% | 21 | 8 | 6 |
+| 2025 Mosconi Cup | 0/4 | 70% | 34 | 6 | 5 |
+| 2026 Premier League Pool | 4/4 | 98% | 31 | 7 | 6 |
+| 2025 UK Open | 2/4 | 42% | 18 | 4 | 0 |
+| 2025 Hanoi Open | 1/4 | 41% | 7 | 3 | 1 |
+| 2024 JOY Heyball Masters | 2/4 | 84% | 17 | 5 | 3 |
+| 2016 Derby City Classic | 0/4 | 52% | 38 | 3 | 8 |
+| amateur bar box | 0/4 | 97% | 31 | 4 | 1 |
+| 2026 Wuhan Open snooker | 3/4 | 96% | 36 | 4 | 2 |
+
+### 14.6 Still wrong at other venues
+
+* **Too many balls.** A minute of 9-ball should have at most 10. Every cut
+  starts the tracks over (§13.1). Players' hands on the rail (Derby City)
+  and a tight rack split and renumbered (bar box) add phantoms.
+* **Cushion noses** are often not found (0/4 at 3 venues). The outline then
+  keeps the clothed cushion tops, and positions near a rail are off by up to
+  2 in.
+* **A close-up of two balls** was once taken for a table at the Mosconi Cup:
+  it does not run off the picture, and it is mostly cloth.
+* No ground truth for any of these, so there is no accuracy figure. These are
+  counts and pictures (`results/venues.png`, `results/venues/*.mp4`).

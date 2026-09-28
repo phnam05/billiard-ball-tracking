@@ -1172,6 +1172,59 @@ def test_a_patch_too_small_to_be_the_table_is_not_taken_for_it():
         calibrate(frames, Config().apply_preset())
 
 
+def _venue_frames(floor_bgr, cloth_bgr, n=6, seed=0):
+    """A table in perspective on a floor, with a few balls: the bed is a
+    trapezoid inside a dark rail, the floor fills the rest of the picture."""
+    import cv2
+
+    rng = np.random.default_rng(seed)
+    bed = np.array([[230, 110], [410, 110], [470, 300], [170, 300]], np.int32)
+    rail = np.array([[215, 98], [425, 98], [492, 316], [148, 316]], np.int32)
+    frames = []
+    for i in range(n):
+        img = np.empty((360, 640, 3), np.uint8)
+        img[:] = floor_bgr
+        cv2.fillConvexPoly(img, rail, (38, 38, 42))
+        cv2.fillConvexPoly(img, bed, cloth_bgr)
+        for k, colour in enumerate([(240, 240, 235), (30, 200, 230), (40, 40, 200), (20, 20, 20)]):
+            cv2.circle(img, (260 + 40 * k + 3 * i, 180 + 15 * (k % 2)), 6, colour, -1)
+        noise = rng.normal(0, 3.0, img.shape)
+        frames.append(np.clip(img + noise, 0, 255).astype(np.uint8))
+    return frames, bed.astype(float)
+
+
+@pytest.mark.parametrize("floor, cloth, hue", [
+    # The 2026 US Open: blue-grey cloth (HSV 103/42/186) on a royal-blue floor
+    # (117/211/202), which was taken for the cloth and nothing was tracked.
+    ((202, 50, 35), (186, 173, 155), 103),
+    # Green cloth on a red floor: the floor is the commonest colour.
+    ((40, 30, 150), (86, 122, 46), 76),
+])
+def test_the_cloth_is_not_taken_from_a_bigger_coloured_floor(floor, cloth, hue):
+    from billiards.table import calibrate
+
+    frames, bed = _venue_frames(floor, cloth)
+    result = calibrate(frames, Config().apply_preset())
+    assert abs(result.cloth.hue - hue) < 6, result.cloth.to_dict()
+    chosen = [c for c in result.cloth_candidates if c["chosen"]]
+    assert len(chosen) == 1 and chosen[0]["source"] != "the commonest colour"
+    # The outline found is the bed's, not the floor's (the nose search may
+    # move an edge in by a little).
+    assert np.max(np.abs(result.table.reference_outline - bed)) < 12, result.table.reference_outline
+
+
+def test_on_a_grey_carpet_the_usual_estimate_is_kept():
+    """Footage that already worked is left as it was: on the sample clips'
+    venue the commonest colour is the cloth, and it stays the choice."""
+    from billiards.table import calibrate
+
+    frames, bed = _venue_frames((62, 62, 62), (176, 161, 147))
+    result = calibrate(frames, Config().apply_preset())
+    chosen = [c for c in result.cloth_candidates if c["chosen"]]
+    assert chosen[0]["source"] == "the commonest colour"
+    assert np.max(np.abs(result.table.reference_outline - bed)) < 12
+
+
 def test_a_frame_that_will_not_decode_mid_file_is_skipped(monkeypatch):
     from billiards import video
 

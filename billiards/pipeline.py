@@ -28,7 +28,7 @@ from .events import Event, EventDetector, EventType
 from .geometry import TableModel
 from .render import Renderer
 from .shots import Shot, ShotSegmenter
-from .table import CalibrationResult, ClothModel, calibrate, largest_cloth_contour
+from .table import CalibrationResult, ClothModel, calibrate, corners_on_edge, largest_cloth_contour
 from .track import MultiObjectTracker, Track, TrackState
 from .video import (
     TrackCsvWriter,
@@ -487,6 +487,11 @@ class TrackingPipeline:
         if unchanged:
             candidate, candidate_detector = self.table, self.detector
         else:
+            # After a cut to a low close-up the cloth runs off the picture;
+            # an outline fitted to that took in the score bar, whose ball
+            # icons were then tracked (2025 UK Open, 28 Sep 2026).
+            if corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
+                return False
             candidate = TableModel(
                 corners_image=quad,
                 length_in=self.cfg.table.length_in,
@@ -496,6 +501,8 @@ class TrackingPipeline:
                 image_size=(frame.shape[1], frame.shape[0]),
                 ball_parallax=self.cfg.table.ball_parallax,
             )
+            if candidate.expected_ball_radius_px(tuple(quad.mean(axis=0))) < self.cfg.table.min_ball_radius_px:
+                return False
             candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
 
         coverage = candidate_detector.bed_cloth_coverage(self.cloth.mask(hsv))
@@ -574,6 +581,16 @@ class TrackingPipeline:
             return False
 
         if self._same_table(quad):
+            return False
+        if corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
+            # The camera has zoomed in until the cloth runs off the picture.
+            # There is no table to adopt, and the old one is not where the
+            # table is any more: tracked on it, the 2025 UK Open's push-in
+            # put a row of "balls" on a rail and 95 contacts between them.
+            # So tracking waits, as after a cut, for the whole table again.
+            self.view_valid = False
+            self._low_coverage_frames = 0
+            self._recovery_quads.clear()
             return False
         return self._adopt_table(quad, frame, hsv)
 

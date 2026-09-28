@@ -66,6 +66,10 @@ class TableConfig:
     #: (radius, pixels, mid-table) is taken to be something else of the
     #: cloth's colour -- a banner, a sign -- and calibration fails instead.
     min_ball_radius_px: float = 3.0
+    #: Choosing the cloth (``table.choose_cloth``): a frame's outline of a
+    #: candidate colour agrees with the others if no corner is further than
+    #: this fraction of the picture's diagonal from the median outline.
+    candidate_corner_tolerance: float = 0.04
 
     #: How far a corner may drift before we decide the camera actually cut or
     #: panned and a recalibration is needed.  Fraction of the table short side.
@@ -276,6 +280,19 @@ class ClothConfig:
 
     #: Downscale factor used when histogramming frames, for speed.
     analysis_scale: float = 0.5
+
+    #: Besides the commonest hue, this many of the commonest colours (by hue
+    #: and saturation) and greys (by brightness) are tried as the cloth, each
+    #: covering at least ``candidate_min_share`` of the sampled pixels, and the
+    #: most table-like is kept (``table.choose_cloth``).  Needed wherever the
+    #: floor or the walls are more of the picture than the bed: the 2026 US
+    #: Open's royal-blue floor was taken for its blue-grey cloth.
+    colour_candidates: int = 4
+    grey_candidates: int = 2
+    candidate_min_share: float = 0.015
+    #: The commonest hue stays the cloth unless another candidate scores this
+    #: many times higher, so footage it already handles is left as it was.
+    candidate_margin: float = 1.25
 
 
 @dataclass

@@ -1,5 +1,5 @@
 {
- "measured": "2026-09-26T17:24:00+07:00",
+ "measured": "2026-09-28T10:08:57+07:00",
  "duration_s": 4.0,
  "variants": [
   {
@@ -18,7 +18,7 @@
    "collisions": "3/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 18.0
+   "tracking_fps": 15.1
   },
   {
    "name": "green",
@@ -36,7 +36,7 @@
    "collisions": "3/5 (+1)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 19.4
+   "tracking_fps": 15.4
   },
   {
    "name": "blue",
@@ -54,7 +54,7 @@
    "collisions": "4/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 19.9
+   "tracking_fps": 15.3
   },
   {
    "name": "red",
@@ -72,7 +72,7 @@
    "collisions": "4/5 (+3)",
    "ball_px": 23.2,
    "source_fps": 30.0,
-   "tracking_fps": 20.4
+   "tracking_fps": 15.9
   },
   {
    "name": "tan",
@@ -90,13 +90,61 @@
    "collisions": "4/5 (+1)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 21.7
+   "tracking_fps": 17.5
   },
   {
    "name": "grey",
    "what": "nearly neutral grey cloth",
-   "calibrated": false,
-   "error": "Table calibration failed: the cloth-coloured region found is too small to be the table (a ball there would be 5.7 px across), so it is probably something else of that colour. Pass --table-corners to set the four corners by hand."
+   "calibrated": true,
+   "recall": 0.7905,
+   "precision": 1.0,
+   "mota": 0.7894,
+   "id_switches": 1,
+   "position_error_in": 0.262,
+   "speed_error": 0.0283,
+   "numbers_right": 0.896,
+   "table_turned": "same",
+   "cushions": "17/20 (+1)",
+   "collisions": "3/5 (+2)",
+   "ball_px": 23.3,
+   "source_fps": 30.0,
+   "tracking_fps": 16.8
+  },
+  {
+   "name": "blue-floor",
+   "what": "the sample clips' cloth on a royal-blue floor, as at the 2026 US Open",
+   "calibrated": true,
+   "recall": 0.8102,
+   "precision": 1.0,
+   "mota": 0.8091,
+   "id_switches": 1,
+   "position_error_in": 0.278,
+   "speed_error": 0.0253,
+   "numbers_right": 0.908,
+   "table_turned": "same",
+   "cushions": "16/20 (+0)",
+   "collisions": "3/5 (+3)",
+   "ball_px": 23.3,
+   "source_fps": 30.0,
+   "tracking_fps": 13.8
+  },
+  {
+   "name": "green-red-floor",
+   "what": "green cloth on a red floor",
+   "calibrated": true,
+   "recall": 0.8662,
+   "precision": 1.0,
+   "mota": 0.8641,
+   "id_switches": 2,
+   "position_error_in": 0.243,
+   "speed_error": 0.0215,
+   "numbers_right": 0.97,
+   "table_turned": "same",
+   "cushions": "18/20 (+0)",
+   "collisions": "3/5 (+1)",
+   "ball_px": 23.3,
+   "source_fps": 30.0,
+   "tracking_fps": 13.8
   },
   {
    "name": "side",
@@ -114,7 +162,7 @@
    "collisions": "3/5 (+3)",
    "ball_px": 16.9,
    "source_fps": 30.0,
-   "tracking_fps": 18.9
+   "tracking_fps": 15.8
   },
   {
    "name": "overhead",
@@ -132,7 +180,7 @@
    "collisions": "4/5 (+2)",
    "ball_px": 23.6,
    "source_fps": 30.0,
-   "tracking_fps": 15.1
+   "tracking_fps": 16.2
   },
   {
    "name": "corner",
@@ -150,7 +198,7 @@
    "collisions": "1/5 (+6)",
    "ball_px": 16.3,
    "source_fps": 30.0,
-   "tracking_fps": 21.1
+   "tracking_fps": 14.8
   },
   {
    "name": "480p",
@@ -168,7 +216,7 @@
    "collisions": "3/5 (+2)",
    "ball_px": 15.5,
    "source_fps": 30.0,
-   "tracking_fps": 27.8
+   "tracking_fps": 24.9
   },
   {
    "name": "1080p",
@@ -186,7 +234,7 @@
    "collisions": "3/5 (+2)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 20.4
+   "tracking_fps": 14.7
   },
   {
    "name": "60fps",
@@ -204,7 +252,7 @@
    "collisions": "1/2 (+1)",
    "ball_px": 23.3,
    "source_fps": 60.0,
-   "tracking_fps": 26.0
+   "tracking_fps": 22.5
   },
   {
    "name": "screen-rec",
@@ -222,7 +270,7 @@
    "collisions": "2/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 25.0,
-   "tracking_fps": 29.8
+   "tracking_fps": 18.8
   },
   {
    "name": "tv-set",
@@ -240,7 +288,7 @@
    "collisions": "6/13 (+0)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 23.3
+   "tracking_fps": 15.3
   }
  ]
 }

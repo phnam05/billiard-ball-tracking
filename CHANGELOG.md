@@ -5,6 +5,36 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-28
 
+### Fixed (afternoon): footage from other venues
+
+- **The table is found when the floor is a stronger colour than the cloth.**
+  A 2026 US Open clip tracked nothing: the cloth was taken to be the
+  commonest saturated colour, and that was the royal-blue floor, not the
+  blue-grey cloth. Now the commonest colours (by hue and saturation) and
+  greys are each tried, and the one whose outline behaves like a table is
+  kept (`table.choose_cloth`): it agrees from frame to frame, the colour
+  fills it, and it doesn't run off the picture. The usual estimate is kept
+  unless another scores 1.25× higher.
+- **Grey cloth is found automatically**, with no corners placed by hand
+  (simulated: MOTA 0.79, the same as with corners placed).
+- **A highlight reel's several cameras**: calibration uses the biggest group
+  of frames that agree, one camera's view, instead of a median of all of
+  them (the 2025 UK Open cuts between three).
+- **An outline that runs off the picture is never taken for the table**,
+  after a cut either (a UK Open close-up had its score bar's ball icons
+  tracked). When a camera zooms in until the cloth runs off the picture,
+  tracking pauses until the whole table is back.
+- Robustness (simulated): new *blue-floor* 0 → 0.81 and *green-red-floor*
+  0 → 0.86 variants (`make_synthetic_clip.py --floor`); grey cloth "table not
+  found" → 0.79. The other 13 variants, the synthetic benchmark (0.844 /
+  0.816) and the sample clips are unchanged.
+- `tools/venues.py`: one real minute from each of 11 venues, tracked the way
+  the app tracks (`reports/venues.json`, `results/venues.png`). The table is
+  now found at all 11. Downloads go to `.cache/`, which is not committed.
+- `calibration.cloth_candidates` in `run.json` lists every colour tried and
+  its score.
+- 3 tests; 152 pass.
+
 ### Added
 
 - **Track a YouTube link, a few minutes at a time** (`billiards/fetch.py`,

@@ -17,15 +17,15 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | The app | ✅ | `python main.py app`: says what to do next, one button per video; library, set-up, results, live |
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
 | YouTube links | ✅ | Paste a link, pick the minutes, see how long first; tried on one YouTube final |
-| Finding the table | ✅ | Sample clips, 6 cloths, 4 cameras; grey cloth needs corners by hand |
+| Finding the table | ✅ | 11 real venues, 7 cloths, 3 floors, 4 cameras; grey cloth found by itself |
 | Finding the balls | ⚠️ | Balls against the far cushion unseen (an app option finds them, plus a phantom) |
 | Ball numbers 1–15 | ✅ | 72–97% right on synthetic; right in all 3 real shot logs |
 | Cushion contacts | ✅ | 20 of 23 on synthetic, none false; real clips as in the video |
 | Pots | ⚠️ | `fedor_shot`'s 2 found; `albin_fedor`'s 5 missed (far-left corner) |
 | Collisions | ⚠️ | 4 of 6 on synthetic, 3 false |
 | Ball speeds | ✅ | 2.7% median error (4.9% screen-recorded) |
-| Tests | ✅ | 149 pass |
-| On GitHub | ✅ | Everything to 28 Sep pushed |
+| Tests | ✅ | 152 pass |
+| On GitHub | ⚠️ | 28 Sep morning pushed (`1387635`); the venue fixes not committed |
 
 **Key numbers**: synthetic break (`reports/run-log.json`, 26 Sep 17:21)
 
@@ -50,7 +50,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **23 Sep 2026** | Work computer: clock, ball height, events, identity, ball numbers | Positions right on broadcasts; cushions 5 → 40 of 44 |
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
-| **28 Sep 2026** | YouTube links, with a measured time estimate | Paste a link, track only the minutes picked |
+| **28 Sep 2026** | YouTube links; other venues | Paste a link, track the minutes picked; the table found at 11 venues |
 
 ---
 
@@ -197,9 +197,9 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 
 ---
 
-## 📅 28 Sep 2026: A YouTube link, a few minutes of it
+## 📅 28 Sep 2026: A YouTube link, and other venues
 
-*Work computer, scratch venv (+ yt-dlp). The tracker is untouched, so `results/` still matches it. Committed and pushed.*
+*Work computer, scratch venv (+ yt-dlp). Rows 1–6 committed and pushed (`1387635`); rows 7–11 not committed. `results/` regenerated after row 10.*
 
 ### State at the end of the day
 
@@ -207,9 +207,10 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 |---|---|
 | ✅ Links | Paste a link, pick the part, see the estimate; only that part is downloaded, then tracked (app and command line) |
 | ✅ Estimate | The example final: 1 h 45 min for all 61 min in the app; a 3–5 min part 5–8 min |
-| ⚠️ Highlight reels | Each cut restarts the tracks: 20 "balls" in a minute of 10-ball |
+| ✅ Other venues | The table found at all 11 tried; grey cloth by itself |
+| ⚠️ Highlight reels | Each cut restarts the tracks: 18–38 "balls" in a minute; cushion noses often missed |
 | ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno) |
-| ✅ Tests | 149 pass (131 at the start) |
+| ✅ Tests | 152 pass (131 at the start) |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
 |---|---|---|---|
@@ -219,6 +220,11 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 4 | The first hour figure, 2 h 50 min | 🔍 That was `track -o`, which draws the diagram: app 35.4 fps, `-o` 21.5, `--no-overhead` 29.2 on the same 4 min | ✏️ The hour is 1 h 45 min in the app |
 | 5 | The command line | `billiards <link> --start 20:00 --end 25:00`; `--numbers`; m:ss times | 30:00–30:20 fetched, 10-ball numbers, tracked |
 | 6 | "6 min 60 s" on the page | Round before splitting minutes | Fixed; 18 new tests, no network needed |
+| 7 | "Couldn't track anything" (US Open); "not very robust" at another venue | 🔍 Its royal-blue floor was taken for the blue-grey cloth; the simulator's floor was always grey | Reproduced: simulated blue floor 0.81 → 0 |
+| 8 | The cloth taken from the commonest hue | Try 7 colours and greys, keep the most table-like outline (❌ grey on grey took the whole picture → an outline off the picture is never a table) | Your US Open 3 min: 0 → 17 shots; simulated grey, blue floor, red floor 0 → 0.79 / 0.81 / 0.86 |
+| 9 | UK Open: 3 cameras, no agreeing outline | Calibrate on the biggest agreeing group of frames, not the median of all | Table found; sample clips unchanged |
+| 10 | UK Open: score-bar icons tracked; 95 contacts during a zoom | Never adopt an outline off the picture; pause when a zoom runs the cloth off it | 96 → 15 contacts; `run_report` + robustness unchanged elsewhere |
+| 11 | No real footage from other venues | `tools/venues.py`: a minute each from 11 venues (Mosconi, UK Open, heyball, snooker…) | All 11 found; phantoms remain (`results/venues.png`) |
 
 ---
 

@@ -555,6 +555,243 @@ def refine_to_cushion_noses(
     return refined, report
 
 
+# --------------------------------------------------------------------------
+# Which colour is the cloth
+# --------------------------------------------------------------------------
+#
+# ``estimate_cloth_color`` takes the commonest saturated hue for the cloth.
+# That holds at a venue with grey carpet, and it is what every sample clip
+# was.  It fails wherever something else of a strong colour fills more of
+# the picture than the bed does: the 2026 US Open's royal-blue floor (hue
+# 117, saturation 211) around a blue-grey cloth (hue 103, saturation 42), a
+# red floor under green cloth.  There the "cloth" was the floor, and nothing
+# was tracked.  So the commonest colours -- by hue *and* saturation, and the
+# commonest greys -- are each tried as the cloth, and the one whose outline
+# behaves like a table is kept.
+
+
+@dataclass
+class ClothCandidate:
+    """One colour tried as the cloth, and how table-like its outline was."""
+
+    source: str
+    model: ClothModel
+    quads: List[np.ndarray]
+    frames: int
+    #: The outlines of the biggest group of frames that agree with each
+    #: other: one camera angle, where a highlight reel has several.
+    view: List[np.ndarray] = field(default_factory=list)
+    #: How many frames that is.
+    inliers: int = 0
+    #: How much of the median outline the colour fills (a bed: most of it; a
+    #: floor, whose outline encloses the table: much less).
+    fill: float = 0.0
+    #: Corners of the median outline on the edge of the picture.  A floor
+    #: runs off the picture; a table that does cannot be calibrated anyway.
+    border_corners: int = 0
+    ball_radius_px: float = 0.0
+    score: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "source": self.source,
+            "hue": round(self.model.hue, 1),
+            "sat": round(self.model.sat, 1),
+            "val": round(self.model.val, 1),
+            "neutral": self.model.neutral,
+            "outlines": len(self.quads),
+            "agreeing": self.inliers,
+            "of": self.frames,
+            "fill": round(self.fill, 3),
+            "border_corners": self.border_corners,
+            "ball_radius_px": round(self.ball_radius_px, 2),
+            "score": round(self.score, 4),
+        }
+
+
+def _refined(model: ClothModel, hsvs: Sequence[np.ndarray], frames: Sequence[np.ndarray],
+             cfg: Config) -> ClothModel:
+    """Re-measure a candidate inside the region it selects, as the main estimate is."""
+    for _ in range(max(0, cfg.cloth.refine_iterations)):
+        sample = _pixels_in_dominant_region(hsvs, model)
+        if sample is None:
+            break
+        if model.neutral:
+            model = _neutral_model(sample[1], sample[2], frames, cfg)
+        else:
+            model = _model_from_pixels(sample[0], sample[1], sample[2], cfg)
+    return model
+
+
+def _peaks(hist: np.ndarray, count: int, floor: float, reach: Tuple[int, ...],
+           wrap_first_axis: bool) -> List[Tuple[int, ...]]:
+    """The ``count`` biggest bins of a histogram at least ``floor`` high, each
+    blanking its neighbourhood (``reach`` bins either way) before the next."""
+    work = hist.astype(np.float64).copy()
+    found: List[Tuple[int, ...]] = []
+    for _ in range(count):
+        idx = np.unravel_index(int(np.argmax(work)), work.shape)
+        if work[idx] < floor:
+            break
+        found.append(tuple(int(i) for i in idx))
+        ranges = []
+        for axis, (i, r) in enumerate(zip(idx, reach)):
+            span = np.arange(i - r, i + r + 1)
+            if axis == 0 and wrap_first_axis:
+                span %= work.shape[0]
+            else:
+                span = span[(span >= 0) & (span < work.shape[axis])]
+            ranges.append(span)
+        work[np.ix_(*ranges)] = 0.0
+    return found
+
+
+def cloth_candidates(frames: Sequence[np.ndarray], cfg: Config) -> List[Tuple[str, ClothModel]]:
+    """Colours that could be the cloth: the usual estimate first, then the
+    commonest colours by hue and saturation, then the commonest greys."""
+    ccfg = cfg.cloth
+    out: List[Tuple[str, ClothModel]] = []
+    try:
+        out.append(("the commonest colour", estimate_cloth_color(frames, cfg)))
+    except RuntimeError:
+        pass  # every pixel too grey: only the grey candidates below can be it
+
+    hsvs = []
+    for frame in frames:
+        small = frame
+        if ccfg.analysis_scale != 1.0:
+            small = cv2.resize(frame, None, fx=ccfg.analysis_scale, fy=ccfg.analysis_scale,
+                               interpolation=cv2.INTER_AREA)
+        hsvs.append(cv2.cvtColor(small, cv2.COLOR_BGR2HSV))
+    pix = np.concatenate([hsv.reshape(-1, 3) for hsv in hsvs])
+    h, s, v = pix[:, 0].astype(np.int32), pix[:, 1].astype(np.int32), pix[:, 2].astype(np.int32)
+    lit = v >= ccfg.min_value
+    floor = ccfg.candidate_min_share * pix.shape[0]
+
+    # Colours: a joint hue x saturation histogram, 4 hue units by 16 levels.
+    coloured = lit & (s >= ccfg.min_saturation)
+    hb, sb = np.minimum(h[coloured] // 4, 44), s[coloured] // 16
+    hist = np.bincount(hb * 16 + sb, minlength=45 * 16).reshape(45, 16)
+    for hi, si in _peaks(hist, ccfg.colour_candidates, floor, (2, 2), wrap_first_axis=True):
+        hue, sat = hi * 4 + 2.0, si * 16 + 8.0
+        dh = np.abs(h - hue) % 180
+        near = coloured & (np.minimum(dh, 180 - dh) <= 8) & (np.abs(s - sat) <= 32)
+        if np.count_nonzero(near) < 500:
+            continue
+        model = _model_from_pixels(h[near], s[near], v[near], cfg)
+        out.append((f"colour at hue {hue:.0f}, saturation {sat:.0f}", _refined(model, hsvs, frames, cfg)))
+
+    # Greys: by brightness alone, 8 levels a bin.
+    grey = lit & (s < ccfg.min_saturation)
+    ghist = np.bincount(v[grey] // 8, minlength=32)
+    for (vi,) in _peaks(ghist, ccfg.grey_candidates, floor, (3,), wrap_first_axis=False):
+        val = vi * 8 + 4.0
+        near = grey & (np.abs(v - val) <= 20)
+        if np.count_nonzero(near) < 500:
+            continue
+        model = _neutral_model(s[near], v[near], frames, cfg)
+        out.append((f"grey at brightness {val:.0f}", _refined(model, hsvs, frames, cfg)))
+    return out
+
+
+def corners_on_edge(quad: np.ndarray, width: int, height: int, margin: float = 2.5) -> int:
+    """How many corners of an outline lie on the edge of the picture.  Two or
+    more and it runs off the picture: a floor, a close-up, not a table whose
+    corners can be seen."""
+    q = np.asarray(quad, dtype=np.float64).reshape(4, 2)
+    return int(np.count_nonzero(
+        (q[:, 0] <= margin) | (q[:, 0] >= width - 1 - margin)
+        | (q[:, 1] <= margin) | (q[:, 1] >= height - 1 - margin)
+    ))
+
+
+def _outline_fill(mask: np.ndarray, quad: np.ndarray) -> float:
+    inside = np.zeros_like(mask)
+    cv2.fillConvexPoly(inside, np.round(quad).astype(np.int32), 255)
+    area = cv2.countNonZero(inside)
+    return float(cv2.countNonZero(cv2.bitwise_and(mask, inside))) / area if area else 0.0
+
+
+def score_candidate(source: str, model: ClothModel, frames: Sequence[np.ndarray],
+                    cfg: Config) -> ClothCandidate:
+    """How much the outline of this colour behaves like a table's.
+
+    ``score = agreeing frames / frames x fill x 0.5 ** corners on the edge``,
+    and 0 with two or more corners on the edge, or if a ball on it would be
+    too small to see.  "Agreeing" is the biggest group of frames whose
+    outlines agree with each other, not agreement with the median of them
+    all: a highlight reel cuts between two or three cameras, and a median of
+    their outlines is an outline no camera saw.  Each factor is one thing
+    a floor or a banner does and a bed does not: its outline jumps from frame
+    to frame, it encloses things of another colour (the table), it runs off
+    the picture.
+    """
+    cand = ClothCandidate(source=source, model=model, quads=[], frames=len(frames))
+    fills: List[float] = []
+    for frame in frames:
+        mask = model.mask(cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
+        contour = largest_cloth_contour(mask)
+        quad = quad_from_contour(contour) if contour is not None else None
+        if quad is None:
+            continue
+        cand.quads.append(quad)
+        fills.append(_outline_fill(mask, quad))
+    if len(cand.quads) < 3:
+        return cand
+    stack = np.stack(cand.quads)
+    h, w = frames[0].shape[:2]
+    tol = cfg.table.candidate_corner_tolerance * float(np.hypot(w, h))
+    # The outline most others agree with seeds the view; the view is then
+    # every outline close to the median of that group.
+    pairwise = np.linalg.norm(stack[:, None] - stack[None], axis=3).max(axis=2)
+    seed = int(np.argmax((pairwise <= tol).sum(axis=1)))
+    median = np.median(stack[pairwise[seed] <= tol], axis=0)
+    agree = np.linalg.norm(stack - median, axis=2).max(axis=1) <= tol
+    if np.count_nonzero(agree) >= 3:
+        median = np.median(stack[agree], axis=0)
+    cand.view = [q for q, a in zip(cand.quads, agree) if a]
+    cand.inliers = len(cand.view)
+    cand.fill = float(np.median(np.asarray(fills)[agree])) if cand.inliers else 0.0
+    cand.border_corners = corners_on_edge(median, w, h)
+    if cand.border_corners >= 2:
+        # Runs off the picture: a floor, or the whole frame.  A table whose
+        # corners are out of view could not be calibrated from anyway.
+        return cand
+    try:
+        table = TableModel(
+            corners_image=median, length_in=cfg.table.length_in, width_in=cfg.table.width_in,
+            ball_diameter_in=cfg.table.ball_diameter_in, image_size=(w, h),
+            ball_parallax=cfg.table.ball_parallax,
+        )
+        cand.ball_radius_px = float(table.expected_ball_radius_px(tuple(median.mean(axis=0))))
+    except (ValueError, np.linalg.LinAlgError, cv2.error):
+        return cand
+    if cand.ball_radius_px < cfg.table.min_ball_radius_px:
+        return cand
+    cand.score = cand.inliers / cand.frames * cand.fill * 0.5 ** cand.border_corners
+    return cand
+
+
+def choose_cloth(frames: Sequence[np.ndarray], cfg: Config) -> Tuple[ClothCandidate, List[ClothCandidate]]:
+    """The candidate to calibrate with, and every one that was tried.
+
+    The usual estimate is kept unless another is clearly more table-like
+    (``cloth.candidate_margin``), so footage it already handles is not
+    re-decided on a coin toss between two near-identical windows.
+    """
+    tried = [score_candidate(source, model, frames, cfg) for source, model in cloth_candidates(frames, cfg)]
+    if not tried:
+        raise RuntimeError(
+            "Could not measure the cloth colour: every pixel was rejected as too "
+            "dark. If the clip really is very dark, lower cloth.min_value."
+        )
+    best = tried[0]
+    for cand in tried[1:]:
+        if cand.score > best.score * (cfg.cloth.candidate_margin if best is tried[0] else 1.0):
+            best = cand
+    return best, tried
+
+
 @dataclass
 class CalibrationResult:
     table: TableModel
@@ -564,6 +801,8 @@ class CalibrationResult:
     corner_spread_px: float
     #: Per rail, how far in from the cloth's outline its nose was found.
     cushion_noses: dict = field(default_factory=dict)
+    #: Every colour tried as the cloth, and how table-like it was.
+    cloth_candidates: List[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -573,6 +812,7 @@ class CalibrationResult:
             "frames_attempted": self.frames_attempted,
             "corner_spread_px": round(self.corner_spread_px, 2),
             "cushion_noses": self.cushion_noses,
+            "cloth_candidates": self.cloth_candidates,
         }
 
 
@@ -583,18 +823,10 @@ def calibrate(frames: Sequence[np.ndarray], cfg: Config) -> CalibrationResult:
     over the rail, a cue crossing the cushion, or a caption bar: those spoil a
     minority of frames, and the median ignores them.
     """
-    cloth = estimate_cloth_color(frames, cfg)
-
-    quads: List[np.ndarray] = []
-    for frame in frames:
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cloth.mask(hsv)
-        contour = largest_cloth_contour(mask)
-        if contour is None:
-            continue
-        quad = quad_from_contour(contour)
-        if quad is not None:
-            quads.append(quad)
+    chosen, tried = choose_cloth(frames, cfg)
+    cloth = chosen.model
+    # One camera's view of the table, where the frames show several.
+    quads = chosen.view if len(chosen.view) >= 3 else chosen.quads
 
     if len(quads) < 3:
         raise RuntimeError(
@@ -638,6 +870,7 @@ def calibrate(frames: Sequence[np.ndarray], cfg: Config) -> CalibrationResult:
         frames_attempted=len(frames),
         corner_spread_px=spread,
         cushion_noses=noses,
+        cloth_candidates=[dict(c.to_dict(), chosen=c is chosen) for c in tried],
     )
 
 
