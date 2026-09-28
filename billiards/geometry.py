@@ -191,6 +191,64 @@ def quad_from_longest_edges(contour: np.ndarray) -> Optional[np.ndarray]:
     return order_corners(quad)
 
 
+def median_quad(quads: Sequence[np.ndarray]) -> Tuple[np.ndarray, float]:
+    """The per-corner median of several outlines, and their spread in pixels.
+
+    Each outline is first turned to start at the corner nearest the first
+    outline's first corner.  ``order_corners`` starts at the corner nearest
+    the picture's top-left, and on a table seen square from an end rail two
+    corners are nearly as near as each other, so frame to frame the order can
+    start at either.  A median taken across two orders is a corner from one
+    table and a corner from the other: a self-crossing "table", which was
+    adopted after a cut on the 2026 Premier League final.
+    """
+    ref = np.asarray(quads[0], dtype=np.float64).reshape(4, 2)
+    aligned = []
+    for q in quads:
+        q = np.asarray(q, dtype=np.float64).reshape(4, 2)
+        shift = min(range(4), key=lambda k: float(np.linalg.norm(np.roll(q, k, axis=0) - ref, axis=1).sum()))
+        aligned.append(np.roll(q, shift, axis=0))
+    stack = np.stack(aligned)
+    corners = np.median(stack, axis=0)
+    spread = float(np.max(np.linalg.norm(stack - corners, axis=2)))
+    return corners, spread
+
+
+def outline_support(contour: np.ndarray, quad: np.ndarray, samples: int = 25) -> float:
+    """How well a fitted outline follows the region it was fitted to.
+
+    For each edge, the fraction of points along its middle that lie on the
+    region's boundary (within 1.5% of the outline's size); the smallest of
+    the four.  An outline that cut a corner -- one corner on a side pocket,
+    its "near rail" a diagonal across the bed -- follows the boundary along
+    three edges and not the fourth.  It fitted that way on frame after frame
+    of the 2026 Premier League final, so agreeing frames alone let it in.
+    """
+    q = np.asarray(quad, dtype=np.float64).reshape(4, 2)
+    c = np.asarray(contour, dtype=np.float32).reshape(-1, 1, 2)
+    span = q.max(axis=0) - q.min(axis=0)
+    tol = max(3.0, 0.015 * float(np.hypot(*span)))
+    ts = np.linspace(0.12, 0.88, samples)
+    worst = 1.0
+    for i in range(4):
+        a, b = q[i], q[(i + 1) % 4]
+        on = sum(
+            abs(cv2.pointPolygonTest(c, (float(x), float(y)), True)) <= tol
+            for x, y in a + ts[:, None] * (b - a)
+        )
+        worst = min(worst, on / samples)
+    return worst
+
+
+def is_convex_quad(quad: np.ndarray) -> bool:
+    """Four corners, in order, making a convex quadrilateral that does not cross itself."""
+    q = np.asarray(quad, dtype=np.float64).reshape(4, 2)
+    if not np.all(np.isfinite(q)):
+        return False
+    signs = {np.sign(_cross2(q[(i + 1) % 4] - q[i], q[(i + 2) % 4] - q[(i + 1) % 4])) for i in range(4)}
+    return len(signs) == 1 and 0.0 not in signs
+
+
 def _is_sane_quad(quad: np.ndarray, reference_area: float) -> bool:
     """Reject degenerate fits: self-intersecting, tiny, or wildly oversized."""
     if not np.all(np.isfinite(quad)):
@@ -360,11 +418,23 @@ class TableModel:
     #: whether the camera moved.
     outline_image: Optional[np.ndarray] = None
 
+    #: Measure x from the other end.  Which image edge is the table's length
+    #: is decided per view (``_table_corner_targets``), and taking the other
+    #: axis is a reflection: from an end rail the near edge is the short side,
+    #: from a long rail it is the long one, so the two views' tables were
+    #: mirror images of each other, and a ball at (20, 10) in one was at
+    #: (20, 40) in the other.  A second view is mirrored if that is what puts
+    #: its balls where the first view had them.
+    mirrored: bool = False
+
     def __post_init__(self) -> None:
         self.corners_image = np.asarray(self.corners_image, dtype=np.float64).reshape(4, 2)
         if self.outline_image is not None:
             self.outline_image = np.asarray(self.outline_image, dtype=np.float64).reshape(4, 2)
         dst = self._table_corner_targets()
+        if self.mirrored:
+            dst = dst.copy()
+            dst[:, 0] = self.length_in - dst[:, 0]
         self.H = cv2.getPerspectiveTransform(
             self.corners_image.astype(np.float32), dst.astype(np.float32)
         )
@@ -737,6 +807,63 @@ class TableModel:
     def reference_outline(self) -> np.ndarray:
         """The cloth outline this table was fitted from (see ``outline_image``)."""
         return self.corners_image if self.outline_image is None else self.outline_image
+
+    def turned(self) -> "TableModel":
+        """The same table with (0, 0) at the opposite corner.
+
+        A table looks the same turned end for end, so which corner a view
+        calls (0, 0) depends on where its camera stands.  After a cut to
+        another camera the balls decide (``TrackingPipeline._turned_to_match``),
+        so a ball keeps its place, and its path, from one camera to the next.
+        """
+        return TableModel(
+            corners_image=np.roll(self.corners_image, 2, axis=0),
+            length_in=self.length_in,
+            width_in=self.width_in,
+            ball_diameter_in=self.ball_diameter_in,
+            has_pockets=self.has_pockets,
+            image_size=self.image_size,
+            ball_parallax=self.ball_parallax,
+            outline_image=None if self.outline_image is None else np.roll(self.outline_image, 2, axis=0),
+            mirrored=self.mirrored,
+        )
+
+    def mirror(self) -> "TableModel":
+        """The same table with x measured from the other end (see ``mirrored``)."""
+        return TableModel(
+            corners_image=self.corners_image,
+            length_in=self.length_in,
+            width_in=self.width_in,
+            ball_diameter_in=self.ball_diameter_in,
+            has_pockets=self.has_pockets,
+            image_size=self.image_size,
+            ball_parallax=self.ball_parallax,
+            outline_image=self.outline_image,
+            mirrored=not self.mirrored,
+        )
+
+    def outline_offset_in(self, quad: np.ndarray, cushion_in: float) -> float:
+        """How far, in inches, an outline is from being this table's.
+
+        Each corner of the outline is taken onto the cloth through this
+        table's homography, and measured from its nearest corner of the bed,
+        allowing it up to ``cushion_in`` outside it in each direction: the
+        cushion tops are clothed, and one frame's outline of the cloth takes
+        them in on some rails and the next frame's does not (on the grey
+        cushions of the 2026 Premier League final, 2 to 4 inches, frame to
+        frame).  That is not the camera moving.  Returns the largest excess.
+        """
+        pts = self.image_to_table(np.asarray(quad, dtype=np.float64).reshape(4, 2))
+        L, W = self.length_in, self.width_in
+        worst = 0.0
+        for x, y in pts:
+            cx, sx = (0.0, -1.0) if x < L / 2 else (L, 1.0)
+            cy, sy = (0.0, -1.0) if y < W / 2 else (W, 1.0)
+            out_x, out_y = (x - cx) * sx, (y - cy) * sy  # positive outward
+            ex = max(0.0, out_x - cushion_in, -out_x)
+            ey = max(0.0, out_y - cushion_in, -out_y)
+            worst = max(worst, float(np.hypot(ex, ey)))
+        return worst
 
     def to_dict(self) -> dict:
         return {

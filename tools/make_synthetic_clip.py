@@ -688,6 +688,46 @@ def make_break_rack(seed: int = 0, ball_set: str = "standard") -> List[Ball]:
     return balls
 
 
+#: Broadcast-style editing: (from, to, camera after, what is shown instead),
+#: in seconds.  While the camera is away the balls keep rolling and nothing
+#: of the table is in the picture; it comes back on the camera named, which
+#: can be another one.  ``broadcast`` is the pattern of the 2025 Mosconi Cup
+#: and 2026 Premier League minutes: cut away mid-shot to a player, come back
+#: on a camera across the table, cut to the crowd, come back to the end rail.
+CUT_PLANS: Dict[str, List[Tuple[float, float, str, str]]] = {
+    "broadcast": [(2.2, 3.0, "side", "player"), (4.6, 5.2, "end", "crowd")],
+}
+
+
+def away_picture(kind: str, size: Tuple[int, int], f: int) -> np.ndarray:
+    """What a broadcast shows instead of the table: a player, or the crowd.
+
+    Drawn so that a tracker which does not notice the cut finds plenty to
+    track -- round shapes, saturated colours, some of them ball-sized.
+    """
+    w, h = size
+    rng = np.random.default_rng(1000 + (0 if kind == "player" else 1))
+    img = np.zeros((h, w, 3), np.float32)
+    yy = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None, None]
+    img[:] = np.array([40.0, 30.0, 26.0]) * (1.2 - 0.6 * yy)
+    if kind == "player":
+        cx = w * 0.5 + 12.0 * math.sin(f / 9.0)
+        cv2.ellipse(img, (int(cx), int(h * 0.42)), (int(w * 0.09), int(h * 0.19)), 0, 0, 360,
+                    (120, 150, 205), -1, cv2.LINE_AA)  # face
+        cv2.ellipse(img, (int(cx), int(h * 1.02)), (int(w * 0.26), int(h * 0.42)), 0, 0, 360,
+                    (150, 60, 40), -1, cv2.LINE_AA)  # shirt
+        cv2.rectangle(img, (int(w * 0.72), int(h * 0.1)), (int(w * 0.95), int(h * 0.3)),
+                      (30, 30, 170), -1)  # a banner
+    else:
+        for _ in range(140):
+            x, y = int(rng.uniform(0, w)), int(rng.uniform(0.15 * h, h))
+            r = int(rng.uniform(6, 26))
+            colour = tuple(float(c) for c in rng.uniform(20, 230, 3))
+            cv2.circle(img, (x + int(3 * math.sin(f / 5.0 + x)), y), r, colour, -1, cv2.LINE_AA)
+    img += np.random.default_rng(f).normal(0.0, 3.0, img.shape)
+    return cv2.GaussianBlur(np.clip(img, 0, 255).astype(np.uint8), (3, 3), 0.7)
+
+
 def generate(
     out_path: Path,
     *,
@@ -707,8 +747,13 @@ def generate(
     ball_set: str = "standard",
     cloth: str = "broadcast",
     floor: str = "carpet",
+    cuts: Optional[str] = None,
 ) -> Dict[str, object]:
     """Simulate a break and write it as a video, with ground truth.
+
+    With ``cuts`` (a name in ``CUT_PLANS``) the clip is edited like a
+    broadcast: it cuts away from the table and back, possibly to another
+    camera.  Balls are not visible (``visible`` 0) while it is away.
 
     ``fps`` is the rate the scene is filmed at.  With ``container_fps`` set, the
     clip is instead written the way the sample broadcast clips were evidently
@@ -722,9 +767,29 @@ def generate(
     """
     balls = make_break_rack(seed, ball_set)
     sim = Simulation(balls, seed=seed)
-    renderer = Renderer(out_size=(width, height), seed=seed, camera=camera,
-                        cloth_bgr=CLOTHS[cloth], floor_bgr=FLOORS[floor])
+    renderers: Dict[str, Renderer] = {}
+
+    def renderer_for(name: str) -> Renderer:
+        if name not in renderers:
+            renderers[name] = Renderer(out_size=(width, height), seed=seed, camera=name,
+                                       cloth_bgr=CLOTHS[cloth], floor_bgr=FLOORS[floor])
+        return renderers[name]
+
+    renderer = renderer_for(camera)
+    plan = CUT_PLANS[cuts] if cuts else []
     retimed = container_fps is not None
+    if plan and retimed:
+        raise ValueError("cuts are not simulated for a screen-recorded clip")
+
+    def shot_at(t: float) -> Tuple[Optional[str], str]:
+        """(what is shown instead of the table, or None; the camera) at time ``t``."""
+        cam = camera
+        for start, end, after, away in plan:
+            if start <= t < end:
+                return away, cam
+            if t >= end:
+                cam = after
+        return None, cam
     file_fps = float(container_fps) if retimed else fps
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -760,9 +825,9 @@ def generate(
             sim.step(dt)
         return cue_line
 
-    def rows_for(frame_index: int, t_file: float) -> List[List[object]]:
+    def rows_for(frame_index: int, t_file: float, away: bool = False) -> List[List[object]]:
         rows: List[List[object]] = []
-        seen = renderer.visibility(balls)
+        seen = {b.name: 0.0 for b in balls} if away else renderer.visibility(balls)
         for b in balls:
             if not b.active:
                 continue
@@ -789,9 +854,14 @@ def generate(
         if not retimed:
             for f in range(n_frames):
                 cue_line = advance(f)
-                frame = renderer.render(balls, cue_line)
+                away, cam = shot_at(f / fps)
+                renderer = renderer_for(cam)
+                if away:
+                    frame = away_picture(away, (width, height), f)
+                else:
+                    frame = renderer.render(balls, cue_line)
                 writer.write(frame)
-                gt_rows.extend(rows_for(f, f / fps))
+                gt_rows.extend(rows_for(f, f / fps, away=away is not None))
                 shown_from.append((f / fps, f))
         else:
             cap = np.random.default_rng(seed + 7331)
@@ -906,6 +976,9 @@ def main() -> int:
     p.add_argument("--floor", choices=sorted(FLOORS), default="carpet",
                    help="what the table stands on: grey carpet, or the 2026 US "
                         "Open's royal-blue floor, or a red one")
+    p.add_argument("--cuts", choices=sorted(CUT_PLANS), default=None,
+                   help="edit the clip like a broadcast: cut away from the table "
+                        "and back, to another camera (see CUT_PLANS)")
     p.add_argument("--duration", type=float, default=6.0)
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
@@ -920,7 +993,7 @@ def main() -> int:
         events_path=Path(args.events) if args.events else None,
         container_fps=args.container_fps, drop_rate=args.drop_rate,
         capture_jitter=args.capture_jitter, camera=args.camera,
-        ball_set=args.ball_set, cloth=args.cloth, floor=args.floor,
+        ball_set=args.ball_set, cloth=args.cloth, floor=args.floor, cuts=args.cuts,
     )
     for k, v in info.items():
         print(f"{k}: {v}")

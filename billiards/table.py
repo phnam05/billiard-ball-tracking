@@ -350,7 +350,7 @@ def estimate_cloth_color(
 # --------------------------------------------------------------------------
 
 
-def largest_cloth_contour(mask: np.ndarray) -> Optional[np.ndarray]:
+def largest_cloth_contour(mask: np.ndarray, max_width: int = 0) -> Optional[np.ndarray]:
     """Outline of the table bed, isolated from anything else the mask caught.
 
     Order of operations matters here, and getting it wrong is what made this
@@ -363,7 +363,31 @@ def largest_cloth_contour(mask: np.ndarray) -> Optional[np.ndarray]:
     Closing first (as an earlier version did) welds the bed to the background
     before anything gets to separate them, and the "table" then spans half the
     frame.
+
+    With ``max_width``, a wider mask is worked on shrunk to that width and
+    the outline scaled back: the two morphology passes are most of the cost
+    (20 ms at 720p), and the tracker re-fits the outline while the table is
+    out of view and at every re-check, where a pixel of precision is not
+    worth four times the time.
     """
+    scale = 1.0
+    if max_width and mask.shape[1] > max_width:
+        scale = max_width / float(mask.shape[1])
+        # Cloth only where all of it was cloth.  The line under a cushion's
+        # nose is a pixel or two wide, and it is all that separates the bed
+        # from the clothed cushion tops: shrunk by sampling, it was lost, and
+        # the table fitted after a cut on the synthetic broadcast came out
+        # 6 in too big, against 0.5 in at full size.
+        small = cv2.resize(mask, (max_width, max(1, int(round(mask.shape[0] * scale)))),
+                           interpolation=cv2.INTER_AREA)
+        mask = cv2.threshold(small, 250, 255, cv2.THRESH_BINARY)[1]
+    found = _largest_cloth_contour(mask)
+    if found is None or scale == 1.0:
+        return found
+    return np.round(found.astype(np.float64) / scale).astype(np.int32)
+
+
+def _largest_cloth_contour(mask: np.ndarray) -> Optional[np.ndarray]:
     h, w = mask.shape[:2]
     open_k = max(3, int(round(min(h, w) * 0.014)) | 1)
     opened = cv2.morphologyEx(

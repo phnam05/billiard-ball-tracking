@@ -30,6 +30,11 @@ from .track import Track, TrackState
 #: it was struck.  The filter starts with a wide velocity prior by design.
 _MIN_AGE_FOR_STRUCK = 8
 
+#: Seconds after the table comes back from a cut in which no ball is called
+#: struck (see ``EventDetector.forget``): long enough for a ball picked up
+#: mid-roll to have its speed measured.
+_QUIET_AFTER_CUT_S = 0.3
+
 
 def closest_approach(
     gap: np.ndarray, change: np.ndarray
@@ -210,6 +215,8 @@ class EventDetector:
         self.kink_events = True
         self.kink_cushions = True
         self.sampled_events = True
+        #: Scene time until which no ball is called struck (``forget``).
+        self._quiet_until = -np.inf
 
     @property
     def _struck_speed(self) -> float:
@@ -256,6 +263,24 @@ class EventDetector:
 
         self.events.extend(new)
         return new
+
+    def forget(self) -> None:
+        """The camera cut away: every ball's path so far ends here.
+
+        When the table is back a ball is picked up where it is then, which
+        may be feet from where it was.  Joined to its old path, that jump
+        is a corner, a bounce, a strike.  So the paths start again, and for a
+        moment nothing is called struck: a ball picked up mid-roll has a
+        filter that starts at rest, and would read as struck when it caught up.
+        """
+        self._prev_velocity.clear()
+        self._prev_position.clear()
+        self._motion_state.clear()
+        self._observed.clear()
+        self._last_kink_t.clear()
+        self._pending.clear()
+        self._rail_state.clear()
+        self._quiet_until = self._t_scene + _QUIET_AFTER_CUT_S
 
     def note_pot(self, track: Track, frame: int, t_s: float) -> Event:
         pos = track.kf.position
@@ -722,6 +747,10 @@ class EventDetector:
                 continue
 
             if speed <= struck_speed or track.age < _MIN_AGE_FOR_STRUCK:
+                continue
+            if self._t_scene < self._quiet_until:
+                # Back from a cut: moving already, not struck just now.
+                self._motion_state[track.track_id] = "moving"
                 continue
             self._motion_state[track.track_id] = "moving"
             pos = track.kf.position

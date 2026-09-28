@@ -64,6 +64,9 @@ VARIANTS: List[tuple] = [
     ("screen-rec", "25 fps broadcast screen-recorded at 37.5 fps, 1 frame in 8 missed",
      {"fps": 25.0, "container_fps": 37.5, "drop_rate": 0.12, "capture_jitter": 0.6}),
     ("tv-set", "the broadcasts' ball set (4 pink, 5 purple, black caps)", {"ball_set": "tv"}),
+    ("cuts", "edited like a broadcast: cut to a player mid-shot, back on a camera across "
+     "the table, cut to the crowd, back to the end rail (8 s)",
+     {"cuts": "broadcast", "duration_s": 8.0}),
 ]
 
 
@@ -105,6 +108,8 @@ def _number_accuracy(gt_path: Path, tracks_path: Path, symmetry: str = "same",
 def measure(name: str, what: str, kwargs: Dict[str, Any], work: Path, duration: float) -> Dict[str, Any]:
     video, gt, ev = work / f"{name}.mp4", work / f"{name}_gt.csv", work / f"{name}_events.json"
     tracks = work / f"{name}_tracks.csv"
+    kwargs = dict(kwargs)
+    duration = kwargs.pop("duration_s", duration)
     generate(video, seed=0, duration_s=duration, ground_truth_path=gt, events_path=ev, **kwargs)
     shot: Dict[str, Any] = {}
     frames = int(cv2.VideoCapture(str(video)).get(cv2.CAP_PROP_FRAME_COUNT))
@@ -144,6 +149,7 @@ def measure(name: str, what: str, kwargs: Dict[str, Any], work: Path, duration: 
         "precision": report["precision"],
         "mota": report["mota"],
         "id_switches": report["id_switches"],
+        "ids_per_ball": report["ids_per_ball"],
         "position_error_in": None if report["matched"] == 0 else report["position_error_in"]["median"],
         "speed_error": speed.get("median_relative"),
         "numbers_right": _number_accuracy(gt, tracks, symmetry),
@@ -187,14 +193,14 @@ def _fmt(value: Any, spec: str, width: int, scale: float = 1.0, suffix: str = ""
 
 def print_table(rows: List[Dict[str, Any]]) -> None:
     print()
-    print(f"{'variant':12s} {'MOTA':>6s} {'recall':>6s} {'prec':>6s} {'IDsw':>4s} {'pos in':>6s} "
+    print(f"{'variant':12s} {'MOTA':>6s} {'recall':>6s} {'prec':>6s} {'IDsw':>4s} {'ids':>4s} {'pos in':>6s} "
           f"{'speed':>6s} {'numbers':>7s} {'ball px':>7s}  cushions    contacts")
     for r in rows:
         if not r["calibrated"]:
             print(f"{r['name']:12s} no table found: {r['error'][:80]}")
             continue
         print(f"{r['name']:12s} {_fmt(r['mota'], '.3f', 6)} {_fmt(r['recall'], '.3f', 6)} "
-              f"{_fmt(r['precision'], '.3f', 6)} {_fmt(r['id_switches'], 'd', 4)} "
+              f"{_fmt(r['precision'], '.3f', 6)} {_fmt(r['id_switches'], 'd', 4)} {_fmt(r.get('ids_per_ball'), '.1f', 4)} "
               f"{_fmt(r['position_error_in'], '.2f', 6)} {_fmt(r['speed_error'], '.1f', 6, 100, '%')} "
               f"{_fmt(r['numbers_right'], '.0f', 7, 100, '%')} {_fmt(r['ball_px'], '.1f', 7)}  "
               f"{r['cushions']:11s} {r['collisions']}")

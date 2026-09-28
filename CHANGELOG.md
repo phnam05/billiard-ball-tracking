@@ -5,6 +5,49 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-28
 
+### Fixed (late afternoon): the same balls across a broadcast's cuts
+
+- **A ball keeps its identity when the broadcast cuts away and back**, to
+  the same camera or another. At a cut every ball is set aside, rolled on
+  by its motion model while the table is out of view, and re-found when it
+  is back: near where it should be, or anywhere by an unambiguous colour.
+  Balls not found in 4 s of the table in view are lost, or potted if they
+  were heading into a pocket. Before, every ball became a new one, and one
+  that coasted near a pocket was reported potted.
+- **The tracker is never rebuilt.** It used to be rebuilt whenever the
+  table's outline looked different, including every 5 s on grey cloth whose
+  cushion tops come and go from the outline. Track ids restarted at 1 each
+  time, so `tracks.csv` had different balls under one id. Ids are now unique
+  for the whole clip.
+- **Camera views are remembered**, and a view seen before is recognised from
+  the picture: its bed is cloth and the band round its rails is not. A new
+  view gets its cushion noses fitted, and is turned or **mirrored** to put the
+  balls where they were. A camera across a long rail used to see the table
+  mirrored relative to the end-rail camera (`TableModel.mirrored`).
+- **The camera is followed when it pushes in or pans** (`billiards/camera.py`):
+  features round the table are matched to a keyframe of the view, and the
+  table is carried along by the fitted motion. Before, the outline was
+  refitted, which a player over the near rail spoils.
+- **The table re-check ran on no frame at all on 60 fps broadcasts** (it ran
+  on frame numbers that were all repeats). It now runs every 30 measured
+  frames (`table.recalibration_interval`, was 150), sooner when the bed stops
+  looking like cloth.
+- A median of several frames' outlines could cross itself (corners in two
+  orders). Outlines that cut a corner are no longer evidence. Outlines fitted
+  while tracking use a half-size mask that keeps the line under the cushion
+  nose (it had come out 6 in too big).
+- A clip that opens on something other than the table starts with tracking
+  paused.
+- `tools/robustness.py` *cuts* variant (`make_synthetic_clip.py --cuts
+  broadcast`), and `evaluate.py` reports **ids per ball**. On that clip: MOTA
+  0.404 → 0.782, precision 0.762 → 1.000, ids per ball 2.3 → 1.2.
+- Real minutes, balls reported for at most 10 on the table: Mosconi Cup 91 →
+  44, Premier League 129 → 33, UK Open 48 → 26. Speed 35.1 → 31.0, 42.6 →
+  36.9 and 22.4 → 23.8 seconds per minute of footage.
+- New `TrackerConfig` settings: `reclaim_distance_ball_diameters`,
+  `reclaim_colour_ratio`, `reclaim_window_s`. `run.json` adds `views`,
+  `camera_moves` and `tracks_reclaimed`.
+
 ### Fixed (afternoon): footage from other venues
 
 - **The table is found when the floor is a stronger colour than the cloth.**

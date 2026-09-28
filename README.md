@@ -255,6 +255,7 @@ ground truth (4 s of play each, so a little lower than the table above):
 | 854×480 / 1920×1080 | 0.77 / 0.79 |
 | Filmed at 60 fps / screen-recorded broadcast | 0.80 / 0.80 |
 | The broadcasts' ball set | 0.82 |
+| Edited like a broadcast: cut away mid-shot, back on a camera across the table, cut again, back (8 s) | 0.78 |
 
 ```bash
 python tools/robustness.py    # writes reports/robustness.json and results/robustness.png
@@ -336,10 +337,12 @@ whether it looks right. `--no-render` skips that when you only want numbers.
   (`albin_fedor`'s 5). The app's *Look for balls against the far cushion*
   (`detector.search_raised_bed`) finds them, but can also take a black ball's
   shadow or a hand on the rail for a ball, so it is off by default.
-- **Highlight reels and other venues** (`tools/venues.py`, below): the table
-  is found at all 11 venues tried, but every camera cut starts the tracks
-  over, so a minute lists more balls than the table has, and hands on the
-  rail and a tight rack add phantoms.
+- **Broadcasts and other venues** (`tools/venues.py`, below): the table is
+  found at all 11 venues tried, and a ball keeps its id across a camera cut
+  (see `UPGRADE_NOTES.md` §15). A broadcast minute still lists 3–4 times more
+  balls than the table has: hands on the rail, shadows, and balls that moved
+  too far while the camera was away. Replays are tracked as if they were
+  play.
 - **A camera at a corner of the table**, with the table small in the picture,
   tracks worst of the views tried (MOTA 0.57; see *Other footage* above).
 - **A faint cushion-nose line**, at low resolution or from a skewed view, can

@@ -256,7 +256,9 @@ class Renderer:
             if len(track.trail) < 2:
                 continue
             base = track.signature.bgr
-            pts = [s.image_xy for s in track.trail]
+            # From the table, not the pictures they were seen in: after the
+            # camera moves, the path is still drawn where the ball went.
+            pts = self.table.ball_table_to_image(np.array([s.table_xy for s in track.trail]))
             n = len(pts)
             for i in range(1, n):
                 # Fade towards the cloth colour with age, so the newest part of

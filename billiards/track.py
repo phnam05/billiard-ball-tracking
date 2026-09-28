@@ -88,6 +88,7 @@ class Track:
         "time_since_update", "trail", "last_image_xy", "last_radius_px",
         "birth_frame", "death_frame", "death_reason", "_trail_cap",
         "last_observed_xy", "role", "number", "clean_samples", "band_hits",
+        "aside_frame", "aside_frames",
     )
 
     def __init__(
@@ -132,6 +133,11 @@ class Track:
         #: The number printed on the ball, when its colour says which one it
         #: is -- see ``MultiObjectTracker.assign_numbers``.
         self.number: Optional[int] = None
+        #: While set aside at a camera cut (``MultiObjectTracker.set_aside``):
+        #: the frame it was, and how many frames with the table in view it
+        #: has waited since.
+        self.aside_frame: Optional[int] = None
+        self.aside_frames = 0
 
     # -- properties --------------------------------------------------------
 
@@ -281,6 +287,11 @@ class MultiObjectTracker:
         self.limbo: List[Track] = []
         self.revived = 0
         self._limbo_frames = max(1, int(round(cfg.tracker.revive_window_s * self.fps)))
+        #: Balls set aside at a camera cut, waiting to be seen again.  See
+        #: ``set_aside`` and ``_reclaim``.
+        self.aside: List[Track] = []
+        self.reclaimed = 0
+        self._aside_frames = max(1, int(round(cfg.tracker.reclaim_window_s * self.fps)))
         trail_seconds = cfg.render.trail_seconds if cfg.render.trail_seconds > 0 else 8.0
         self._trail_cap = int(max(8, round(trail_seconds * self.fps)))
         self.last_stats: Dict[str, int] = {}
@@ -348,27 +359,36 @@ class MultiObjectTracker:
         cost = self._cost_matrix(detections, dt)
         matches, unmatched_tracks, unmatched_dets = associate(cost)
 
-        matched_track_idx = set()
+        confirmed_now: List[Track] = []
         for ti, di in matches:
-            self.tracks[ti].update(detections[di], self.cfg)
-            matched_track_idx.add(ti)
+            track = self.tracks[ti]
+            was_tentative = track.state is TrackState.TENTATIVE
+            track.update(detections[di], self.cfg)
+            if was_tentative and track.state is TrackState.CONFIRMED:
+                confirmed_now.append(track)
 
         for ti in unmatched_tracks:
             self.tracks[ti].mark_missed(self.cfg)
             # Only a ball that was not seen: a seen one is where it was seen.
             self._bounce_off_rails(self.tracks[ti])
 
-        for di in unmatched_dets:
-            if self._revive(detections[di], frame):
-                continue
+        fresh = [di for di in unmatched_dets if not self._revive(detections[di], frame)]
+        if self.aside:
+            fresh = self._reclaim(detections, fresh, frame)
+        for di in fresh:
             # Past the far edge only balls already being followed are looked
             # for: a hand on the far rail is there too, and is never a ball
             # that rolled there.
             if not detections[di].in_raised_band:
                 self._spawn(detections[di], frame)
+        if self.aside and confirmed_now:
+            # Hidden (by a player, a cluster) on the first frames back, a ball
+            # set aside at the cut is found by its new track instead.
+            self._absorb(confirmed_now)
 
         self._retire(frame)
         self._expire_limbo(frame)
+        self._expire_aside(frame)
         self.assign_roles()
         self.assign_numbers()
 
@@ -522,6 +542,193 @@ class MultiObjectTracker:
         self.revived += 1
         return True
 
+    # -- camera cuts ------------------------------------------------------
+
+    def set_aside(self, frame: int) -> None:
+        """The camera has cut away from the table: set every ball aside.
+
+        Nothing is seen until the table is back, and then possibly from
+        another camera, after balls have rolled.  Tracked on, each ball was
+        coasted, lost, and replaced by a new one when it was seen again --
+        or, if it happened to coast near a pocket, reported potted.  Set
+        aside, a ball keeps its identity until ``_reclaim`` finds it again.
+        A tentative track was never a ball anyone saw, and is dropped.
+        """
+        for track in self.tracks:
+            if track.state is TrackState.TENTATIVE:
+                track.kill(frame, "spurious")
+                self.finished.append(track)
+                continue
+            # A path drawn in one camera's picture means nothing in the next.
+            track.trail.clear()
+            track.aside_frame = frame
+            track.aside_frames = 0
+            self.aside.append(track)
+        self.tracks = []
+
+    def reference_balls(self) -> List[Track]:
+        """The balls the table is known to hold: followed, or set aside."""
+        return [t for t in self.tracks if t.is_visible] + list(self.aside)
+
+    def expected_position(self, track: Track) -> np.ndarray:
+        """Where a ball should be now: its filter's position for a ball set
+        aside (rolled on through the cut, see ``coast_aside``), its last
+        sighting otherwise."""
+        if track.aside_frame is not None:
+            return np.asarray(track.kf.position, dtype=np.float64)
+        return np.asarray(track.last_observed_xy, dtype=np.float64)
+
+    def coast_aside(self, dt: float) -> None:
+        """Roll the balls set aside on through a frame the table is not seen.
+
+        A broadcast cuts away mid-shot as readily as between shots, and a
+        ball that was rolling when it did is not where it was last seen when
+        the table is back: after the break in the synthetic broadcast clip,
+        most were a foot or more away 0.8 s later.  Its motion model knows
+        where it went -- slowing, and off the cushions -- well enough to find
+        it again there.
+        """
+        rest = self.cfg.tracker.stationary_speed_in_s
+        for track in self.aside:
+            if track.speed < rest:
+                continue
+            track.kf.predict(dt)
+            self._bounce_off_rails(track)
+
+    def _reclaim_cost(self, xy: np.ndarray, signatures: Sequence[ColorSignature]) -> np.ndarray:
+        """Cost of each ball set aside (rows) being each observation (columns).
+
+        A ball found within ``reclaim_distance`` of where it was last seen,
+        looking like it, is that ball: most balls do not move while the camera
+        is away.  One that rolled is found by its colour alone, but only
+        where that is unambiguous: close to it (``reclaim_colour_ratio``), and
+        the closest by a margin of every ball set aside.  Otherwise it is left
+        for a new track, which is the old behaviour, and no worse.
+        """
+        tc = self.cfg.tracker
+        n, m = len(self.aside), len(xy)
+        cost = np.full((n, m), FORBIDDEN, dtype=np.float64)
+        if n == 0 or m == 0:
+            return cost
+        near = tc.reclaim_distance_ball_diameters * self.table.ball_diameter_in
+        cmax = tc.max_color_distance
+        last = np.array([self.expected_position(t) for t in self.aside], dtype=np.float64).reshape(n, 2)
+        # A ball that rolled on through the cut is where its motion model put
+        # it, give or take a fifth of how far it went.
+        rolled = np.array([
+            np.linalg.norm(self.expected_position(t) - np.asarray(t.last_observed_xy)) for t in self.aside
+        ])
+        near = near + 0.2 * rolled[:, None]
+        dist = np.linalg.norm(last[:, None, :] - np.asarray(xy, dtype=np.float64).reshape(m, 2)[None], axis=2)
+        colour = colour_distance_matrix([t.signature for t in self.aside], signatures)
+
+        near_ok = (dist <= near) & (colour <= cmax)
+        cost[near_ok] = (dist / near + colour / cmax)[near_ok]
+
+        ordered = np.sort(colour, axis=0)
+        runner_up = ordered[1] if n > 1 else np.full(m, np.inf)
+        margin = 0.25 * cmax
+        far_ok = (
+            ~near_ok
+            & (colour <= tc.reclaim_colour_ratio * cmax)
+            & (colour <= ordered[0][None, :])
+            & (runner_up[None, :] >= colour + margin)
+        )
+        cost[far_ok] = (2.0 + colour / cmax)[far_ok]
+        return cost
+
+    def _give_back(self, track: Track, detection_xy, frame: int) -> None:
+        """Return a ball set aside to the tracker, at ``detection_xy``."""
+        tc = self.cfg.tracker
+        self.aside.remove(track)
+        track.kf = BallKalman(
+            detection_xy,
+            velocity_tau_s=tc.velocity_tau_s,
+            accel_std_in_s2=tc.accel_std_in_s2,
+            meas_std_in=tc.meas_std_in,
+            init_vel_std_in_s=tc.init_vel_std_in_s,
+            manoeuvre_gain_max=tc.manoeuvre_gain_max,
+        )
+        track.state = TrackState.CONFIRMED
+        track.aside_frame = None
+        track.aside_frames = 0
+        self.tracks.append(track)
+        self.reclaimed += 1
+
+    def _reclaim(self, detections: Sequence[Detection], candidates: List[int], frame: int) -> List[int]:
+        """Give detections that match no followed ball to balls set aside.
+
+        One optimal assignment over all of them at once, as for tracking: the
+        first frame back from a cut matches every ball on the table here.
+        Returns the detections that matched none.
+        """
+        usable = [di for di in candidates if not detections[di].in_raised_band]
+        if not usable:
+            return candidates
+        dets = [detections[di] for di in usable]
+        cost = self._reclaim_cost(
+            np.array([d.centre_table for d in dets], dtype=np.float64).reshape(-1, 2),
+            [d.signature for d in dets],
+        )
+        matches, _, _ = associate(cost)
+        taken = set()
+        for ai, j in sorted(matches, key=lambda p: -p[0]):
+            track = self.aside[ai]
+            self._give_back(track, dets[j].centre_table, frame)
+            track.update(dets[j], self.cfg)
+            taken.add(usable[j])
+        return [di for di in candidates if di not in taken]
+
+    def _absorb(self, newcomers: Sequence[Track]) -> None:
+        """New tracks, just confirmed, that are balls set aside at a cut."""
+        if not self.aside or not newcomers:
+            return
+        cost = self._reclaim_cost(
+            np.array([t.kf.position for t in newcomers], dtype=np.float64).reshape(-1, 2),
+            [t.signature for t in newcomers],
+        )
+        matches, _, _ = associate(cost)
+        for ai, j in sorted(matches, key=lambda p: -p[0]):
+            old, new = self.aside[ai], newcomers[j]
+            self.aside.remove(old)
+            # The ball keeps its name, and takes over what its new track has
+            # measured since: the filter, the path, the last sighting.
+            old.kf = new.kf
+            old.state = TrackState.CONFIRMED
+            old.hits += new.hits
+            old.time_since_update = new.time_since_update
+            old.last_image_xy, old.last_observed_xy = new.last_image_xy, new.last_observed_xy
+            old.last_radius_px = new.last_radius_px
+            old.trail.clear()
+            old.trail.extend(new.trail)
+            old.aside_frame, old.aside_frames = None, 0
+            self.tracks[self.tracks.index(new)] = old
+            self.reclaimed += 1
+
+    def _expire_aside(self, frame: int) -> None:
+        """Give up on balls set aside that have not been seen again.
+
+        Only frames with the table in view count (this runs only then): a
+        close-up of a player can outlast any window, and the balls are still
+        on the table.  A ball heading into a pocket when the camera cut away
+        was potted, dated to the cut; any other is lost.
+        """
+        keep: List[Track] = []
+        for track in self.aside:
+            track.aside_frames += 1
+            if track.aside_frames < self._aside_frames:
+                keep.append(track)
+                continue
+            pos, vel = track.kf.position, track.kf.velocity
+            potted = self._heading_into_pocket(np.asarray(track.last_observed_xy), vel) or (
+                self.table.nearest_pocket_distance((float(pos[0]), float(pos[1])))
+                <= self.cfg.events.pocket_radius_ball_diameters * self.table.ball_diameter_in
+            )
+            track.kill(track.aside_frame if track.aside_frame is not None else frame,
+                       "potted" if potted and track.speed > self.cfg.tracker.stationary_speed_in_s else "lost")
+            self.finished.append(track)
+        self.aside = keep
+
     def _expire_limbo(self, frame: int) -> None:
         keep: List[Track] = []
         for track in self.limbo:
@@ -535,6 +742,13 @@ class MultiObjectTracker:
         """End of clip: nothing more can come back."""
         self.finished.extend(self.limbo)
         self.limbo = []
+
+    def flush_aside(self, frame: int) -> None:
+        """End of clip: balls still set aside at a cut were not seen again."""
+        for track in self.aside:
+            track.kill(track.aside_frame if track.aside_frame is not None else frame, "lost")
+            self.finished.append(track)
+        self.aside = []
 
     def _coasting_budget(self, track: Track) -> float:
         """How many frames this track may go unseen before it is dropped.
@@ -552,7 +766,7 @@ class MultiObjectTracker:
 
     def rescale_time(self, factor: float) -> None:
         """Every ball's velocity, in a clock ``factor`` times faster."""
-        for track in list(self.tracks) + list(self.limbo):
+        for track in list(self.tracks) + list(self.limbo) + list(self.aside):
             track.kf.rescale_time(factor)
 
     def _clock_tracks(self, min_speed_in_s: float, settled: bool = False) -> List[Track]:
@@ -616,7 +830,7 @@ class MultiObjectTracker:
         return [t for t in self.tracks if t.is_visible]
 
     def all_tracks(self) -> List[Track]:
-        return list(self.tracks) + list(self.limbo) + list(self.finished)
+        return list(self.tracks) + list(self.aside) + list(self.limbo) + list(self.finished)
 
     def assign_roles(self) -> None:
         """Decide which single track is the cue ball, and which is the 8.
@@ -710,9 +924,12 @@ class MultiObjectTracker:
         ]
         if not candidates:
             return
+        # A ball set aside at a cut keeps its number too, which is also what
+        # lets it be found again by colour rather than as a rival 7.
         taken = {
-            t.number for t in list(self.limbo) + list(self.finished)
-            if t.number is not None and (t in self.limbo or t.death_reason == "potted")
+            t.number for t in list(self.limbo) + list(self.finished) + list(self.aside)
+            if t.number is not None
+            and (t in self.limbo or t in self.aside or t.death_reason == "potted")
         }
         allowed = [n for n in self._allowed_numbers if n not in taken]
         observed = []

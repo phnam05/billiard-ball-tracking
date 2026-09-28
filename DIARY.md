@@ -18,16 +18,17 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
 | YouTube links | ✅ | Paste a link, pick the minutes, see how long first; tried on one YouTube final |
 | Finding the table | ✅ | 11 real venues, 7 cloths, 3 floors, 4 cameras; grey cloth found by itself |
+| Broadcast cuts | ⚠️ | Balls keep their ids across cuts and cameras; still 3–4× too many ids on real minutes (Mosconi 44, Premier League 33 for ≤10) |
 | Finding the balls | ⚠️ | Balls against the far cushion unseen (an app option finds them, plus a phantom) |
 | Ball numbers 1–15 | ✅ | 72–97% right on synthetic; right in all 3 real shot logs |
 | Cushion contacts | ✅ | 20 of 23 on synthetic, none false; real clips as in the video |
 | Pots | ⚠️ | `fedor_shot`'s 2 found; `albin_fedor`'s 5 missed (far-left corner) |
 | Collisions | ⚠️ | 4 of 6 on synthetic, 3 false |
 | Ball speeds | ✅ | 2.7% median error (4.9% screen-recorded) |
-| Tests | ✅ | 152 pass |
-| On GitHub | ⚠️ | 28 Sep morning pushed (`1387635`); the venue fixes not committed |
+| Tests | ✅ | 152 pass; none yet for today's cut handling |
+| On GitHub | ⚠️ | 28 Sep morning pushed (`1387635`); venue fixes (`cfb3b8b`) and cut handling committed, not pushed |
 
-**Key numbers**: synthetic break (`reports/run-log.json`, 26 Sep 17:21)
+**Key numbers**: synthetic break (`reports/run-log.json`, 28 Sep 12:53, as on 26 Sep)
 
 | | Constant-rate | Screen-recorded style |
 |---|---|---|
@@ -50,7 +51,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **23 Sep 2026** | Work computer: clock, ball height, events, identity, ball numbers | Positions right on broadcasts; cushions 5 → 40 of 44 |
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
-| **28 Sep 2026** | YouTube links; other venues | Paste a link, track the minutes picked; the table found at 11 venues |
+| **28 Sep 2026** | YouTube links; other venues; balls kept through cuts | Paste a link, track the minutes picked; the table found at 11 venues; a broadcast minute lists 26–44 balls, not 48–129 |
 
 ---
 
@@ -197,9 +198,9 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 
 ---
 
-## 📅 28 Sep 2026: A YouTube link, and other venues
+## 📅 28 Sep 2026: A YouTube link, other venues, and cuts
 
-*Work computer, scratch venv (+ yt-dlp). Rows 1–6 committed and pushed (`1387635`); rows 7–11 not committed. `results/` regenerated after row 10.*
+*Work computer, scratch venv (+ yt-dlp). Rows 1–6 pushed (`1387635`); rows 7–11 committed as `cfb3b8b`, rows 12–18 in the commit after it, not pushed. `results/` regenerated at 12:53 (row 18).*
 
 ### State at the end of the day
 
@@ -208,8 +209,9 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | ✅ Links | Paste a link, pick the part, see the estimate; only that part is downloaded, then tracked (app and command line) |
 | ✅ Estimate | The example final: 1 h 45 min for all 61 min in the app; a 3–5 min part 5–8 min |
 | ✅ Other venues | The table found at all 11 tried; grey cloth by itself |
-| ⚠️ Highlight reels | Each cut restarts the tracks: 18–38 "balls" in a minute; cushion noses often missed |
-| ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno) |
+| ✅ Cuts | A ball keeps its id across a cut and a change of camera (simulated cuts: MOTA 0.40 → 0.78) |
+| ⚠️ Broadcasts | Still 3–4× too many ids a minute (Mosconi 44, Premier League 33, UK Open 26); replays tracked as play |
+| ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno); real CCTV footage |
 | ✅ Tests | 152 pass (131 at the start) |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
@@ -225,6 +227,13 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 9 | UK Open: 3 cameras, no agreeing outline | Calibrate on the biggest agreeing group of frames, not the median of all | Table found; sample clips unchanged |
 | 10 | UK Open: score-bar icons tracked; 95 contacts during a zoom | Never adopt an outline off the picture; pause when a zoom runs the cloth off it | 96 → 15 contacts; `run_report` + robustness unchanged elsewhere |
 | 11 | No real footage from other venues | `tools/venues.py`: a minute each from 11 venues (Mosconi, UK Open, heyball, snooker…) | All 11 found; phantoms remain (`results/venues.png`) |
+| 12 | "Reliably track tournament videos": 91 / 129 / 48 balls in a minute (≤10) | 🔍 Tracker rebuilt at every changed outline (every 5 s on grey cloth, no cut needed); ids restarted at 1, so the CSV mixed balls | Cause found |
+| 13 | Every cut forgot the balls | One tracker; at a cut balls are set aside, rolled on, re-found by position or colour (❌ last-seen position: balls rolling at the cut not found) | Simulated cuts: ids per ball 2.3 → 1.2 |
+| 14 | Another camera put the balls elsewhere | Views remembered; a new view turned or mirrored to match the balls (❌ turning only: the across-the-table camera is a mirror image) | That segment: MOTA −0.69 → 0.70 |
+| 15 | Table stale when the camera pushes in | Re-check fixed (never ran at 60 fps); "view still fits" test; camera followed by feature matching (❌ refitted outlines: a player over a rail read as a move) | Premier League: 8 moves followed |
+| 16 | New views 6 in too big; one "table" crossed itself | Half-size mask keeps the nose line; corner orders aligned; outlines must follow the cloth | 6.25 → 0.8 in |
+| 17 | No measure of cuts | `robustness.py` *cuts* variant; `evaluate.py` ids per ball | MOTA 0.404 → 0.782, precision 1.000 |
+| 18 | Checks | 152 tests; `run_report` 12:53 and 16 robustness variants unchanged; venue minutes | Balls 91 → 44, 129 → 33, 48 → 26; ✏️ Mosconi was 35 before its overhead camera was tracked |
 
 ---
 

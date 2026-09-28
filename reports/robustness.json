@@ -1,5 +1,5 @@
 {
- "measured": "2026-09-28T10:08:57+07:00",
+ "measured": "2026-09-28T12:59:03+07:00",
  "duration_s": 4.0,
  "variants": [
   {
@@ -10,6 +10,7 @@
    "precision": 1.0,
    "mota": 0.8071,
    "id_switches": 1,
+   "ids_per_ball": 1.11,
    "position_error_in": 0.278,
    "speed_error": 0.0253,
    "numbers_right": 0.908,
@@ -18,7 +19,7 @@
    "collisions": "3/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 15.1
+   "tracking_fps": 14.0
   },
   {
    "name": "green",
@@ -28,6 +29,7 @@
    "precision": 1.0,
    "mota": 0.8672,
    "id_switches": 2,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.243,
    "speed_error": 0.0217,
    "numbers_right": 0.97,
@@ -36,7 +38,7 @@
    "collisions": "3/5 (+1)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 15.4
+   "tracking_fps": 14.5
   },
   {
    "name": "blue",
@@ -46,6 +48,7 @@
    "precision": 0.9941,
    "mota": 0.8683,
    "id_switches": 7,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.268,
    "speed_error": 0.024,
    "numbers_right": 0.824,
@@ -54,7 +57,7 @@
    "collisions": "4/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 15.3
+   "tracking_fps": 14.3
   },
   {
    "name": "red",
@@ -64,6 +67,7 @@
    "precision": 1.0,
    "mota": 0.861,
    "id_switches": 3,
+   "ids_per_ball": 1.33,
    "position_error_in": 0.296,
    "speed_error": 0.0237,
    "numbers_right": 0.946,
@@ -72,7 +76,7 @@
    "collisions": "4/5 (+3)",
    "ball_px": 23.2,
    "source_fps": 30.0,
-   "tracking_fps": 15.9
+   "tracking_fps": 16.5
   },
   {
    "name": "tan",
@@ -82,6 +86,7 @@
    "precision": 1.0,
    "mota": 0.7427,
    "id_switches": 1,
+   "ids_per_ball": 1.12,
    "position_error_in": 0.293,
    "speed_error": 0.0208,
    "numbers_right": 0.941,
@@ -90,7 +95,7 @@
    "collisions": "4/5 (+1)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 17.5
+   "tracking_fps": 16.8
   },
   {
    "name": "grey",
@@ -100,6 +105,7 @@
    "precision": 1.0,
    "mota": 0.7894,
    "id_switches": 1,
+   "ids_per_ball": 1.11,
    "position_error_in": 0.262,
    "speed_error": 0.0283,
    "numbers_right": 0.896,
@@ -108,7 +114,7 @@
    "collisions": "3/5 (+2)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 16.8
+   "tracking_fps": 15.2
   },
   {
    "name": "blue-floor",
@@ -118,6 +124,7 @@
    "precision": 1.0,
    "mota": 0.8091,
    "id_switches": 1,
+   "ids_per_ball": 1.11,
    "position_error_in": 0.278,
    "speed_error": 0.0253,
    "numbers_right": 0.908,
@@ -126,7 +133,7 @@
    "collisions": "3/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 13.8
+   "tracking_fps": 13.0
   },
   {
    "name": "green-red-floor",
@@ -136,6 +143,7 @@
    "precision": 1.0,
    "mota": 0.8641,
    "id_switches": 2,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.243,
    "speed_error": 0.0215,
    "numbers_right": 0.97,
@@ -144,7 +152,7 @@
    "collisions": "3/5 (+1)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 13.8
+   "tracking_fps": 14.4
   },
   {
    "name": "side",
@@ -154,6 +162,7 @@
    "precision": 1.0,
    "mota": 0.7213,
    "id_switches": 3,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.385,
    "speed_error": 0.0244,
    "numbers_right": 0.872,
@@ -162,7 +171,7 @@
    "collisions": "3/5 (+3)",
    "ball_px": 16.9,
    "source_fps": 30.0,
-   "tracking_fps": 15.8
+   "tracking_fps": 15.4
   },
   {
    "name": "overhead",
@@ -172,6 +181,7 @@
    "precision": 1.0,
    "mota": 0.8843,
    "id_switches": 3,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.412,
    "speed_error": 0.0221,
    "numbers_right": 0.771,
@@ -180,7 +190,7 @@
    "collisions": "4/5 (+2)",
    "ball_px": 23.6,
    "source_fps": 30.0,
-   "tracking_fps": 16.2
+   "tracking_fps": 15.1
   },
   {
    "name": "corner",
@@ -190,6 +200,7 @@
    "precision": 0.8335,
    "mota": 0.5694,
    "id_switches": 10,
+   "ids_per_ball": 1.78,
    "position_error_in": 1.867,
    "speed_error": 0.0599,
    "numbers_right": 0.758,
@@ -198,7 +209,7 @@
    "collisions": "1/5 (+6)",
    "ball_px": 16.3,
    "source_fps": 30.0,
-   "tracking_fps": 14.8
+   "tracking_fps": 15.4
   },
   {
    "name": "480p",
@@ -208,6 +219,7 @@
    "precision": 0.9922,
    "mota": 0.7687,
    "id_switches": 20,
+   "ids_per_ball": 2.22,
    "position_error_in": 0.407,
    "speed_error": 0.0393,
    "numbers_right": 0.715,
@@ -216,7 +228,7 @@
    "collisions": "3/5 (+2)",
    "ball_px": 15.5,
    "source_fps": 30.0,
-   "tracking_fps": 24.9
+   "tracking_fps": 25.0
   },
   {
    "name": "1080p",
@@ -226,6 +238,7 @@
    "precision": 0.9987,
    "mota": 0.7905,
    "id_switches": 2,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.286,
    "speed_error": 0.0237,
    "numbers_right": 0.887,
@@ -234,7 +247,7 @@
    "collisions": "3/5 (+2)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 14.7
+   "tracking_fps": 14.4
   },
   {
    "name": "60fps",
@@ -244,6 +257,7 @@
    "precision": 0.991,
    "mota": 0.8034,
    "id_switches": 7,
+   "ids_per_ball": 1.56,
    "position_error_in": 0.318,
    "speed_error": 0.0246,
    "numbers_right": 0.847,
@@ -252,7 +266,7 @@
    "collisions": "1/2 (+1)",
    "ball_px": 23.3,
    "source_fps": 60.0,
-   "tracking_fps": 22.5
+   "tracking_fps": 21.0
   },
   {
    "name": "screen-rec",
@@ -262,6 +276,7 @@
    "precision": 0.9948,
    "mota": 0.7953,
    "id_switches": 2,
+   "ids_per_ball": 1.22,
    "position_error_in": 0.218,
    "speed_error": 0.0474,
    "numbers_right": 0.877,
@@ -270,7 +285,7 @@
    "collisions": "2/5 (+3)",
    "ball_px": 23.3,
    "source_fps": 25.0,
-   "tracking_fps": 18.8
+   "tracking_fps": 18.7
   },
   {
    "name": "tv-set",
@@ -280,6 +295,7 @@
    "precision": 1.0,
    "mota": 0.8153,
    "id_switches": 1,
+   "ids_per_ball": 1.1,
    "position_error_in": 0.267,
    "speed_error": 0.0254,
    "numbers_right": 0.889,
@@ -288,7 +304,26 @@
    "collisions": "6/13 (+0)",
    "ball_px": 23.3,
    "source_fps": 30.0,
-   "tracking_fps": 15.3
+   "tracking_fps": 15.5
+  },
+  {
+   "name": "cuts",
+   "what": "edited like a broadcast: cut to a player mid-shot, back on a camera across the table, cut to the crowd, back to the end rail (8 s)",
+   "calibrated": true,
+   "recall": 0.7839,
+   "precision": 1.0,
+   "mota": 0.7821,
+   "id_switches": 3,
+   "ids_per_ball": 1.22,
+   "position_error_in": 0.347,
+   "speed_error": 0.038,
+   "numbers_right": 0.942,
+   "table_turned": "same",
+   "cushions": "11/23 (+0)",
+   "collisions": "2/6 (+3)",
+   "ball_px": 23.3,
+   "source_fps": 30.0,
+   "tracking_fps": 21.0
   }
  ]
 }

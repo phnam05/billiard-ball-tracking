@@ -25,10 +25,20 @@ from .clock import SourceClock
 from .config import Config
 from .detect import BallDetector, Detection
 from .events import Event, EventDetector, EventType
-from .geometry import TableModel
+from .camera import Keyframe, carried
+from .geometry import TableModel, is_convex_quad, median_quad
 from .render import Renderer
 from .shots import Shot, ShotSegmenter
-from .table import CalibrationResult, ClothModel, calibrate, corners_on_edge, largest_cloth_contour
+from .assignment import FORBIDDEN, associate
+from .detect import colour_distance_matrix
+from .table import (
+    CalibrationResult,
+    ClothModel,
+    calibrate,
+    corners_on_edge,
+    largest_cloth_contour,
+    refine_to_cushion_noses,
+)
 from .track import MultiObjectTracker, Track, TrackState
 from .video import (
     TrackCsvWriter,
@@ -63,6 +73,50 @@ class FrameResult:
     annotated: Optional[np.ndarray] = None
 
 
+@dataclass(eq=False)
+class _View:
+    """One camera's view of the table, and what is built from it."""
+
+    table: TableModel
+    detector: BallDetector
+    renderer: Renderer
+    #: How much of the band round the table was cloth when this view was
+    #: fresh (see ``TrackingPipeline._aligned``).
+    surround_ref: Optional[float] = None
+    #: A picture of this view, to measure the camera's motion against.
+    keyframe: Optional[Keyframe] = None
+
+
+#: Camera views remembered at once.  A broadcast uses two or three; a camera
+#: that zooms slowly adds one at every re-check, and the oldest are dropped.
+_MAX_VIEWS = 8
+
+#: Bed coverage below this fraction of its reference brings the next re-check
+#: of the table's outline forward (``_check_view``).
+_SUSPECT_COVERAGE = 0.85
+
+#: How far outside the cushion noses an outline of the cloth can run and
+#: still be the same view: the clothed cushion top, and its face where the
+#: camera sees it, in inches (see ``TableModel.outline_offset_in``).
+_CUSHION_TOP_IN = 6.0
+
+#: An outline is evidence of where the table is only if every edge follows
+#: the cloth's boundary along at least this fraction of its length.
+_MIN_OUTLINE_SUPPORT = 0.6
+
+#: Outlines fitted while tracking are fitted at this width (see
+#: ``table.largest_cloth_contour``).
+_FIT_WIDTH = 640
+
+#: A view fits the picture (``_aligned``) while at least this much of its bed
+#: is cloth -- 0.96-0.98 on a view that fits, 0.63-0.79 on the 2026 Premier
+#: League final's views that did not -- and no more of the band round it than
+#: this, or than when the view was fresh plus the slack.
+_ALIGNED_BED = 0.9
+_ALIGNED_SURROUND = 0.2
+_SURROUND_SLACK = 0.1
+
+
 class TrackingPipeline:
     """Stateful per-frame tracker.  Own the loop yourself, or use ``run``."""
 
@@ -84,6 +138,31 @@ class TrackingPipeline:
         self.recalibrations = 0
         self.last_frame_index: Optional[int] = None
         self._finished_seen = 0
+
+        #: Every camera view of the table seen so far.  A broadcast cuts
+        #: between two or three cameras; coming back to one it has seen, the
+        #: pipeline switches to that view, cushion noses and all, rather than
+        #: fitting the table again.  The balls are tracked across all of them
+        #: by one tracker, in table inches, which do not depend on the camera.
+        self._views: List[_View] = [_View(table, self.detector, self.renderer)]
+        self._view = self._views[0]
+        self.view_switches = 0
+        #: Frames that gave the recovery outlines, for fitting a new view's
+        #: cushion noses; and a re-check's outlines of a table that seems to
+        #: have moved, with their frames, while that is confirmed.
+        self._recovery_frames: List[np.ndarray] = []
+        self._drift_quads: List[np.ndarray] = []
+        #: After a cut: the view seen before that fits the picture, and on how
+        #: many frames in a row (``_try_recover``).
+        self._aligned_view: Optional[_View] = None
+        self._aligned_run = 0
+        self._lost_fits = 0
+        self._followed_once: Optional[_View] = None
+        #: Views carried along with the camera's motion (``_follow_camera``).
+        self.camera_moves = 0
+        #: The next frame on which the table's outline is re-checked.
+        self._next_check = max(1, cfg.table.recalibration_interval)
+        self._drift_frames: List[np.ndarray] = []
 
         #: Bed cloth coverage when the calibration was fresh, used as the
         #: reference for deciding the view has changed.  Filled on first frame.
@@ -175,13 +254,24 @@ class TrackingPipeline:
         slots = 1 if self.last_frame_index is None else max(1, frame_index - self.last_frame_index)
         self.last_frame_index = frame_index
 
-        if (
-            self.cfg.table.recalibration_interval > 0
-            and frame_index > 0
-            and frame_index % self.cfg.table.recalibration_interval == 0
-        ):
+        interval = self.cfg.table.recalibration_interval
+        if self._drift_quads:
+            self._confirm_drift(frame, hsv, frame_index)
+        elif interval > 0 and frame_index >= self._next_check:
+            # Scheduled by frames since the last check, not by frame number:
+            # the check used to run on frames numbered a multiple of the
+            # interval, and on 60 fps footage that repeats every frame those
+            # were all repeats, which skip this, so it never ran at all.
+            self._next_check = frame_index + interval
             self._maybe_recalibrate(frame, hsv, frame_index)
-            cloth_mask = self.cloth.mask(hsv)
+        if not self.view_valid:
+            # The re-check found the camera zoomed in past the table.
+            self.last_frame_index = frame_index
+            self._last_measured = None
+            annotated = None
+            if annotate:
+                annotated = self.renderer.compose_idle(frame, self.hud(frame_index, t_s))
+            return FrameResult(frame_index, t_s, [], [], [], annotated)
 
         detections = self.detector.detect(frame, hsv, cloth_mask)
         min_step = self.cfg.table.source_clock_min_step_ball_radii * self.table.ball_radius_in
@@ -248,9 +338,10 @@ class TrackingPipeline:
 
     def finish(self) -> List[Event]:
         """End of clip: settle whatever is still waiting, and close the last shot."""
-        self.tracker.flush_limbo()
-        pots = self._confirmed_pots()
         last = self.last_frame_index or 0
+        self.tracker.flush_limbo()
+        self.tracker.flush_aside(last)
+        pots = self._confirmed_pots()
         if pots:
             self.shots.step([], pots, last, last / self.fps)
         self.shots.finish(last, last / self.fps)
@@ -333,6 +424,13 @@ class TrackingPipeline:
 
         coverage = self.detector.bed_cloth_coverage(cloth_mask)
         if self._reference_coverage is None:
+            if self.view_valid and coverage < tcfg.min_bed_coverage:
+                # The table this view was fitted to is not in the picture:
+                # a clip that opens on the arena (2025 Mosconi Cup), or a
+                # view switched to on a frame that was already cutting away.
+                self._lose_view(frame_index)
+                self.view_lost_frames += 1
+                return True
             self._reference_coverage = max(coverage, 0.2)
             return False
 
@@ -344,12 +442,19 @@ class TrackingPipeline:
             # the whole point -- by the time coverage has collapsed far enough
             # to notice, a dissolve has already been fed to the tracker for a
             # dozen frames, which is long enough to confirm phantom tracks.
-            self.view_valid = False
-            self._low_coverage_frames = 0
-            self._recovery_quads.clear()
+            self._lose_view(frame_index)
         elif coverage >= threshold and self.view_valid:
             self._low_coverage_frames = 0
             self._recovery_quads.clear()
+            self._recovery_frames.clear()
+            if coverage < _SUSPECT_COVERAGE * self._reference_coverage and tcfg.recalibration_interval > 0:
+                # Too little of the bed is cloth to be nothing, not so little
+                # as to be a cut: a slow wipe to another camera (2026 Premier
+                # League final: 0.97 down to 0.66 over 20 frames, never under
+                # the cut threshold), or a camera pushing in.  Look again soon.
+                self._next_check = min(
+                    self._next_check, frame_index + max(1, tcfg.recalibration_interval // 3)
+                )
             return False
 
         if self.view_valid:
@@ -358,15 +463,16 @@ class TrackingPipeline:
                 # A player leaning across the table dips coverage for a frame or
                 # two; that is not a cut, and tracks should coast through it.
                 return False
-            self.view_valid = False
-            self._recovery_quads.clear()
+            self._lose_view(frame_index)
 
         self.view_lost_frames += 1
+        self.tracker.coast_aside(1.0 / self.fps)
         if repainted:
             # Mid-transition.  The quad fitted from a frame that is half one
             # shot and half another describes neither, so recovery does not
             # even start until the picture settles.
             self._recovery_quads.clear()
+            self._recovery_frames.clear()
             return True
 
         # Look for the table in the new view.  Adopting it takes several
@@ -378,6 +484,22 @@ class TrackingPipeline:
             self._low_coverage_frames = 0
             return False
         return True
+
+    def _lose_view(self, frame_index: int) -> None:
+        """The table has gone from the picture: stop, and set the balls aside.
+
+        Each ball keeps its identity until it is seen again, after the cut,
+        from this camera or another (``MultiObjectTracker.set_aside``).
+        """
+        self.view_valid = False
+        self._low_coverage_frames = 0
+        self._recovery_quads.clear()
+        self._recovery_frames.clear()
+        self._drift_quads.clear()
+        self._drift_frames.clear()
+        self._aligned_view, self._aligned_run = None, 0
+        self.tracker.set_aside(frame_index)
+        self.event_detector.forget()
 
     def _bed_change(self, frame: np.ndarray) -> Tuple[bool, bool]:
         """How the bed differs from the previous frame, at both ends of the scale.
@@ -467,104 +589,321 @@ class TrackingPipeline:
 
     # -- recalibration -----------------------------------------------------
 
-    def _fit_quad(self, hsv: np.ndarray) -> Optional[np.ndarray]:
-        from .geometry import quad_from_contour
+    def _fit_quad(self, hsv: np.ndarray) -> Tuple[Optional[np.ndarray], bool]:
+        """The outline of the cloth in this frame, and whether it is evidence.
 
-        contour = largest_cloth_contour(self.cloth.mask(hsv))
+        It is if every edge follows the cloth's boundary
+        (``geometry.outline_support``): an outline that cut a corner says
+        nothing about where the table is.
+        """
+        from .geometry import outline_support, quad_from_contour
+
+        contour = largest_cloth_contour(self.cloth.mask(hsv), max_width=_FIT_WIDTH)
         if contour is None:
-            return None
-        return quad_from_contour(contour)
+            return None, False
+        quad = quad_from_contour(contour)
+        if quad is None:
+            return None, False
+        return quad, outline_support(contour, quad) >= _MIN_OUTLINE_SUPPORT
 
-    def _adopt_table(self, quad: np.ndarray, frame: np.ndarray, hsv: np.ndarray) -> bool:
+    def _adopt_table(
+        self,
+        quad: np.ndarray,
+        frame: np.ndarray,
+        hsv: np.ndarray,
+        frames: Sequence[np.ndarray] = (),
+    ) -> bool:
         """Validate a candidate table polygon, and switch to it if it holds up.
 
         A cloth-coloured blob in a crowd shot will happily yield *some*
         quadrilateral.  Requiring the quad to be almost entirely cloth is what
         separates a table from a sponsor banner, and stops a bad recalibration
         from replacing a good calibration with nonsense.
+
+        The tracker is never rebuilt here.  Until 28 Sep 2026 a table that
+        looked different -- another camera, or the same one with the cushion
+        tops in its outline this time -- threw away every ball and started
+        again, and a minute of broadcast listed 48 to 129 balls.  Now a view
+        seen before is switched back to; a new one is fitted as the first was
+        (cushion noses included), turned to agree with where the balls are,
+        and remembered; and the balls carry on, in table inches, which do not
+        depend on the camera.
         """
-        unchanged = self._same_table(quad)
-        if unchanged:
-            candidate, candidate_detector = self.table, self.detector
-        else:
-            # After a cut to a low close-up the cloth runs off the picture;
-            # an outline fitted to that took in the score bar, whose ball
-            # icons were then tracked (2025 UK Open, 28 Sep 2026).
-            if corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
+        mask = self.cloth.mask(hsv)
+        view = self._known_view(quad)
+        if view is not None:
+            if view.detector.bed_cloth_coverage(mask) < self.cfg.table.min_bed_coverage:
                 return False
-            candidate = TableModel(
-                corners_image=quad,
-                length_in=self.cfg.table.length_in,
-                width_in=self.cfg.table.width_in,
-                ball_diameter_in=self.cfg.table.ball_diameter_in,
-                has_pockets=self.table.has_pockets,
-                image_size=(frame.shape[1], frame.shape[0]),
-                ball_parallax=self.cfg.table.ball_parallax,
-            )
-            if candidate.expected_ball_radius_px(tuple(quad.mean(axis=0))) < self.cfg.table.min_ball_radius_px:
-                return False
-            candidate_detector = BallDetector(self.cfg, candidate, self.cloth)
-
-        coverage = candidate_detector.bed_cloth_coverage(self.cloth.mask(hsv))
-        if coverage < self.cfg.table.min_bed_coverage:
-            return False
-
-        if unchanged:
-            # The view went away and came back on the same table -- a replay,
-            # a dissolve that resolved to the shot it started from, a hand
-            # over the lens.  Rebuilding here would throw away every ball's
-            # identity for nothing, so tracking simply resumes.
+            # The view went away and came back -- a replay, a close-up, a
+            # dissolve that resolved to the shot it started from.
+            if view is not self._view:
+                self._use_view(view)
             self._reference_coverage = None
             self._recovery_quads.clear()
+            self._recovery_frames.clear()
             return True
 
-        # Settle anything waiting in the old tracker's limbo before it goes.
-        self.tracker.flush_limbo()
-        late = self._confirmed_pots()
-        if late:
-            last = self.last_frame_index or 0
-            self.shots.step([], late, last, last / self.fps)
-        self._tracks_created_total += self.tracker.tracks_created
-        self.table = candidate
-        self.detector = candidate_detector
-        self.tracker = MultiObjectTracker(self.cfg, self.table, self.fps)
-        self.event_detector = EventDetector(self.cfg, self.table, self.fps)
-        self.renderer = Renderer(self.cfg, self.table, self.cloth)
-        self._finished_seen = 0
-        self.recalibrations += 1
-        self._reference_coverage = None
-        self._recovery_quads.clear()
+        if not is_convex_quad(quad):
+            return False
+        # After a cut to a low close-up the cloth runs off the picture;
+        # an outline fitted to that took in the score bar, whose ball
+        # icons were then tracked (2025 UK Open, 28 Sep 2026).
+        if corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
+            return False
+        candidate = TableModel(
+            corners_image=quad,
+            length_in=self.cfg.table.length_in,
+            width_in=self.cfg.table.width_in,
+            ball_diameter_in=self.cfg.table.ball_diameter_in,
+            has_pockets=self.table.has_pockets,
+            image_size=(frame.shape[1], frame.shape[0]),
+            ball_parallax=self.cfg.table.ball_parallax,
+        )
+        if candidate.expected_ball_radius_px(tuple(quad.mean(axis=0))) < self.cfg.table.min_ball_radius_px:
+            return False
+        if BallDetector(self.cfg, candidate, self.cloth).bed_cloth_coverage(mask) < self.cfg.table.min_bed_coverage:
+            return False
+
+        # As at calibration: the outline of the cloth takes in the clothed
+        # cushion tops, so its edges are moved in to the noses.
+        candidate, _ = refine_to_cushion_noses(candidate, list(frames) or [frame], self.cfg)
+        candidate = self._turned_to_match(candidate, frame, hsv, mask)
+        self._add_view(candidate, frame, mask)
         return True
+
+    def _add_view(self, table: TableModel, frame: np.ndarray, mask: np.ndarray) -> _View:
+        """Remember a new view of the table, fitted to ``frame``, and switch to it."""
+        renderer = Renderer(self.cfg, table, self.cloth)
+        # The diagram keeps the first view's orientation, so it does not
+        # flip over at every cut.
+        first = self._views[0].renderer
+        renderer._flip_x, renderer._flip_y = first._flip_x, first._flip_y
+        view = _View(table, BallDetector(self.cfg, table, self.cloth), renderer)
+        view.surround_ref = view.detector.surround_cloth_coverage(mask)
+        view.keyframe = Keyframe(frame, table)
+        self._views.append(view)
+        if len(self._views) > _MAX_VIEWS:
+            self._views.pop(1)  # never the first, whose diagram the rest follow
+        self._use_view(view)
+        self.recalibrations += 1
+        self._recovery_quads.clear()
+        self._recovery_frames.clear()
+        return view
+
+    def _follow_camera(self, view: _View, frame: np.ndarray, mask: np.ndarray) -> Optional[bool]:
+        """Carry ``view`` along with the camera's motion since it was fitted.
+
+        True if the table was followed (or the camera has not moved, and
+        whatever spoils the view is on the table: a player, a hand); False if
+        it moved off the picture; None if the motion could not be measured --
+        another camera, a close-up -- and the outline has to decide.  See
+        ``camera.py``.
+        """
+        if view.keyframe is None:
+            return None
+        motion = view.keyframe.motion_to(frame)
+        if motion is None:
+            return None
+        moved = cv2.perspectiveTransform(view.table.corners_image.reshape(-1, 1, 2), motion).reshape(-1, 2)
+        shift = float(np.max(np.linalg.norm(moved - view.table.corners_image, axis=1)))
+        tcfg = self.cfg.table
+        if shift <= tcfg.recalibration_tolerance * tcfg.width_in * view.table.mean_px_per_inch():
+            if view is not self._view:
+                self._use_view(view)
+            return True
+        if corners_on_edge(moved, frame.shape[1], frame.shape[0]) >= 2:
+            return False
+        table = carried(view.table, motion)
+        if table is None or BallDetector(self.cfg, table, self.cloth).bed_cloth_coverage(mask) < tcfg.min_bed_coverage:
+            return None
+        self._add_view(table, frame, mask)
+        self.camera_moves += 1
+        return True
+
+    def _use_view(self, view: _View) -> None:
+        """Switch to a camera view: its geometry, detector and drawing."""
+        self._view = view
+        self.table, self.detector, self.renderer = view.table, view.detector, view.renderer
+        self.tracker.table = view.table
+        self.event_detector.table = view.table
+        self._reference_coverage = None
+        self._prev_bed = self._prev_bed_grey = None
+        self.view_switches += 1
+
+    def _known_view(self, quad: np.ndarray) -> Optional[_View]:
+        """The view seen before that this outline is, if any; the current first."""
+        for view in [self._view] + [v for v in self._views if v is not self._view]:
+            if self._matches(view.table, quad):
+                return view
+        return None
+
+    def _matches(self, table: TableModel, quad: np.ndarray) -> bool:
+        """Is this outline the table as ``table``'s camera sees it?"""
+        tcfg = self.cfg.table
+        offset = table.outline_offset_in(quad, cushion_in=_CUSHION_TOP_IN)
+        return offset <= tcfg.recalibration_tolerance * tcfg.width_in
 
     def _same_table(self, quad: np.ndarray) -> bool:
         """Is this candidate the table we are already calibrated to?"""
-        drift = float(np.max(np.linalg.norm(self.table.reference_outline - quad, axis=1)))
-        short_side_px = self.cfg.table.width_in * self.table.mean_px_per_inch()
-        return drift <= self.cfg.table.recalibration_tolerance * short_side_px
+        return self._matches(self.table, quad)
+
+    def _turned_to_match(
+        self, table: TableModel, frame: np.ndarray, hsv: np.ndarray, mask: np.ndarray
+    ) -> TableModel:
+        """``table`` turned or mirrored, whichever puts the balls where they were.
+
+        Which corner of a new view is (0, 0), and which way x runs, follow
+        from where its camera stands, so after a cut from an end-rail camera
+        to one across the table every position could come out turned end for
+        end or mirrored: each ball appears to have jumped, none is found
+        again, and the diagram spins round.  Most balls do not move while the
+        camera is away, so of the four ways to lay the new view over the
+        table, the one that puts the most of the balls seen now where balls
+        were is the one; the view as fitted, unless another does better.
+        """
+        known = self.tracker.reference_balls()
+        if len(known) < 2:
+            return table
+        found = BallDetector(self.cfg, table, self.cloth).detect(frame, hsv, mask)
+        if len(found) < 2:
+            return table
+        xy = np.array([d.centre_table for d in found], dtype=np.float64).reshape(-1, 2)
+        last = np.array([self.tracker.expected_position(t) for t in known], dtype=np.float64).reshape(-1, 2)
+        colour = colour_distance_matrix([t.signature for t in known], [d.signature for d in found])
+        near = self.cfg.tracker.reclaim_distance_ball_diameters * table.ball_diameter_in
+        cmax = self.cfg.tracker.max_color_distance
+
+        def agreeing(points: np.ndarray) -> int:
+            dist = np.linalg.norm(last[:, None, :] - points[None], axis=2)
+            ok = (dist <= near) & (colour <= cmax)
+            matches, _, _ = associate(np.where(ok, dist / near + colour / cmax, FORBIDDEN))
+            return len(matches)
+
+        L, W = table.length_in, table.width_in
+        options = [
+            (table, xy),
+            (table.turned(), np.column_stack([L - xy[:, 0], W - xy[:, 1]])),
+            (table.mirror(), np.column_stack([L - xy[:, 0], xy[:, 1]])),
+            (table.mirror().turned(), np.column_stack([xy[:, 0], W - xy[:, 1]])),
+        ]
+        best, best_n = table, agreeing(xy)
+        for candidate, points in options[1:]:
+            n = agreeing(points)
+            if n > best_n:
+                best, best_n = candidate, n
+        return best
+
+    def _aligned(self, view: _View, mask: np.ndarray) -> bool:
+        """Does this view of the table still fit the picture?
+
+        Its bed is cloth (``_ALIGNED_BED``) and the band round it beyond the
+        cushions -- rails and floor -- is not, or no more than when the view
+        was adopted.  No outline is fitted, which matters on a grey table
+        whose cushion tops come and go from the cloth's outline: fitted
+        outlines there were taken for the camera moving several times a
+        minute.  A camera pushing in fails the band (2026 Premier League:
+        a third of it cloth, against a tenth), one pulling back or cut away
+        fails the bed.
+        """
+        if view.detector.bed_cloth_coverage(mask) < _ALIGNED_BED:
+            return False
+        band = view.detector.surround_cloth_coverage(mask)
+        if band is None:
+            # The band is out of the picture, so the view cannot be told
+            # from a close-up of the cloth: the 2025 Mosconi Cup's close-ups
+            # passed for the table this way, and their shadows were tracked.
+            return False
+        ref = view.surround_ref if view.surround_ref is not None else 0.0
+        return band <= max(_ALIGNED_SURROUND, ref + _SURROUND_SLACK)
+
+    def seed_view_reference(self, frames: Sequence[np.ndarray]) -> None:
+        """Measure the first view's band (``_aligned``) on the frames it was
+        calibrated from: the median over those it fits.  Taken instead from
+        whatever frame came first, it was once a close-up (half cloth, where
+        the table's view is a twentieth) and let every close-up through."""
+        bands = []
+        for frame in frames:
+            mask = self.cloth.mask(cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
+            if self._views[0].detector.bed_cloth_coverage(mask) >= _ALIGNED_BED:
+                band = self._views[0].detector.surround_cloth_coverage(mask)
+                if band is not None:
+                    bands.append(band)
+        if bands:
+            self._views[0].surround_ref = float(np.median(bands))
+        # The keyframe from the frame the view fits best.
+        best, best_cover = None, -1.0
+        for frame in frames:
+            mask = self.cloth.mask(cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
+            cover = self._views[0].detector.bed_cloth_coverage(mask)
+            if cover > best_cover and self._aligned(self._views[0], mask):
+                best, best_cover = frame, cover
+        if best is not None:
+            self._views[0].keyframe = Keyframe(best, self._views[0].table)
 
     def _try_recover(
         self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
     ) -> bool:
-        """Re-find the table after a cut, from several agreeing frames."""
-        tcfg = self.cfg.table
-        quad = self._fit_quad(hsv)
-        if quad is None:
-            return False
+        """Re-find the table after a cut, from several agreeing frames.
 
-        self._recovery_quads.append(quad)
+        A view seen before is looked for first, and needs no outline at all:
+        ``recovery_frames`` frames in a row that it fits (``_aligned``).  A
+        broadcast mostly cuts back to a camera it has used.  Only if none
+        fits is the table's outline fitted, for a new view.
+        """
+        tcfg = self.cfg.table
         need = max(1, tcfg.recovery_frames)
+        mask = self.cloth.mask(hsv)
+        fitting = next((v for v in [self._view] + self._views if self._aligned(v, mask)), None)
+        if fitting is not None:
+            self._aligned_run = self._aligned_run + 1 if fitting is self._aligned_view else 1
+            self._aligned_view = fitting
+            if self._aligned_run >= need:
+                self._aligned_run, self._aligned_view = 0, None
+                if fitting is not self._view:
+                    self._use_view(fitting)
+                self._reference_coverage = None
+                self._recovery_quads.clear()
+                self._recovery_frames.clear()
+                return True
+            return False
+        self._aligned_run, self._aligned_view = 0, None
+
+        # A new view: fitted about fifteen times a second, not on every frame
+        # -- each fit is a few milliseconds, and a broadcast can be away from
+        # the table for a quarter of the time.
+        self._lost_fits += 1
+        if self._lost_fits % max(1, int(round(self.fps / 15.0))):
+            return False
+        # A camera seen before, since zoomed or panned: followed from its
+        # keyframe, on two tries running.
+        for view in [self._view] + [v for v in self._views if v is not self._view]:
+            before = self.table
+            if self._follow_camera(view, frame, mask) and (
+                self.detector.bed_cloth_coverage(mask) >= tcfg.min_bed_coverage
+            ):
+                if self._followed_once is view or self.table is not before:
+                    self._followed_once = None
+                    self._reference_coverage = None
+                    return True
+                self._followed_once = view
+                return False
+        self._followed_once = None
+        quad, supported = self._fit_quad(hsv)
+        if quad is None or not supported:
+            return False
+        self._recovery_quads.append(quad)
+        self._recovery_frames.append(frame.copy())
+        del self._recovery_frames[:-need]
         if len(self._recovery_quads) < need:
             return False
 
-        recent = np.stack(self._recovery_quads[-need:], axis=0)
-        corners = np.median(recent, axis=0)
-        spread = float(np.max(np.linalg.norm(recent - corners, axis=2)))
+        corners, spread = median_quad(self._recovery_quads[-need:])
         # Still settling (a crossfade, a pan): drop the oldest and keep looking.
         if spread > tcfg.recovery_max_spread_px:
             self._recovery_quads.pop(0)
             return False
 
-        return self._adopt_table(corners, frame, hsv)
+        return self._adopt_table(corners, frame, hsv, frames=self._recovery_frames)
 
     def _maybe_recalibrate(
         self, frame: np.ndarray, hsv: np.ndarray, frame_index: int
@@ -573,14 +912,21 @@ class TrackingPipeline:
 
         A tripod gets nudged, a broadcast camera slowly zooms.  Either
         invalidates the homography and with it every physical threshold, so the
-        geometry is re-checked every few seconds and only rebuilt if it has
-        actually moved.
+        geometry is re-checked every few seconds -- and changed only once the
+        next frames agree it has moved (``_confirm_drift``): one frame's
+        outline, with a player over a rail, is not the camera moving.
         """
-        quad = self._fit_quad(hsv)
-        if quad is None:
+        mask = self.cloth.mask(hsv)
+        if self._aligned(self._view, mask):
             return False
-
-        if self._same_table(quad):
+        followed = self._follow_camera(self._view, frame, mask)
+        if followed is not None:
+            if not followed:
+                # Pushed in until the table runs off the picture.
+                self._lose_view(frame_index)
+            return False
+        quad, supported = self._fit_quad(hsv)
+        if quad is None or self._same_table(quad):
             return False
         if corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
             # The camera has zoomed in until the cloth runs off the picture.
@@ -588,11 +934,37 @@ class TrackingPipeline:
             # table is any more: tracked on it, the 2025 UK Open's push-in
             # put a row of "balls" on a rail and 95 contacts between them.
             # So tracking waits, as after a cut, for the whole table again.
-            self.view_valid = False
-            self._low_coverage_frames = 0
-            self._recovery_quads.clear()
+            self._lose_view(frame_index)
             return False
-        return self._adopt_table(quad, frame, hsv)
+        if supported:
+            self._drift_quads = [quad]
+            self._drift_frames = [frame.copy()]
+        return False
+
+    def _confirm_drift(self, frame: np.ndarray, hsv: np.ndarray, frame_index: int) -> bool:
+        """Adopt a moved table once ``recovery_frames`` frames agree on it."""
+        tcfg = self.cfg.table
+        quad, supported = self._fit_quad(hsv)
+        if quad is not None and corners_on_edge(quad, frame.shape[1], frame.shape[0]) >= 2:
+            self._lose_view(frame_index)
+            return False
+        if quad is None or not supported or self._same_table(quad):
+            # It was a player over a rail, or a hand, and has gone.
+            self._drift_quads.clear()
+            self._drift_frames.clear()
+            return False
+        self._drift_quads.append(quad)
+        self._drift_frames.append(frame.copy())
+        need = max(1, tcfg.recovery_frames)
+        if len(self._drift_quads) < need:
+            return False
+        corners, spread = median_quad(self._drift_quads[-need:])
+        frames = self._drift_frames[-need:]
+        self._drift_quads = []
+        self._drift_frames = []
+        if spread > tcfg.recovery_max_spread_px:
+            return False  # still moving, or never agreed: the next re-check looks again
+        return self._adopt_table(corners, frame, hsv, frames=frames)
 
     # -- summary -----------------------------------------------------------
 
@@ -616,6 +988,9 @@ class TrackingPipeline:
             "tracks_alive": len(self.tracker.tracks),
             "tracks_finished": len(self.tracker.finished),
             "tracks_revived": self.tracker.revived,
+            "views": len(self._views),
+            "camera_moves": self.camera_moves,
+            "tracks_reclaimed": self.tracker.reclaimed,
             "ball_set": self.tracker.ball_set,
             "finished_reasons": _count(
                 [t.death_reason or "unknown" for t in self.tracker.finished]
@@ -698,6 +1073,7 @@ def build_pipeline(
         result = calibrate(frames, cfg)
 
     pipeline = TrackingPipeline(cfg, result.table, result.cloth, info.fps)
+    pipeline.seed_view_reference(frames)
     return pipeline, result, info
 
 

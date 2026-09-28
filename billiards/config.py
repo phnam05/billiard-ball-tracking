@@ -75,8 +75,12 @@ class TableConfig:
     #: panned and a recalibration is needed.  Fraction of the table short side.
     recalibration_tolerance: float = 0.06
 
-    #: Re-check the table geometry every N frames (0 disables).
-    recalibration_interval: int = 150
+    #: Re-check the table geometry every N measured frames (0 disables).  A
+    #: check costs one outline fit, about 17 ms at 720p, so every 30 frames is
+    #: half a millisecond a frame; it was 150 until 28 Sep 2026, too slow to
+    #: follow a broadcast camera pushing in.  Sooner when the bed stops
+    #: looking like cloth (see ``TrackingPipeline._check_view``).
+    recalibration_interval: int = 30
 
     #: Broadcast footage cuts between angles and to replays, and a phone on a
     #: tripod gets nudged.  When that happens the homography is stale and every
@@ -168,7 +172,10 @@ class TableConfig:
 
     #: After a cut, how many consecutive frames must agree on the new table
     #: before it is adopted.  One frame during a crossfade is a poor basis for
-    #: a homography that everything downstream depends on.
+    #: a homography that everything downstream depends on.  The periodic
+    #: re-check asks the same of a table that seems to have moved: one frame's
+    #: outline, with a player over the near rail or the cushion tops half in
+    #: it, rebuilt the 2026 Premier League final's table every 5 s.
     recovery_frames: int = 5
 
     #: How far, in pixels, those frames' corners may disagree and still count as
@@ -488,6 +495,23 @@ class TrackerConfig:
     #: therefore reported this much later, at the frame the ball vanished.
     revive_window_s: float = 1.5
     revive_distance_ball_diameters: float = 3.0
+
+    #: A broadcast cuts away from the table -- to a player, a replay, another
+    #: camera -- and comes back to the same balls.  Until 28 Sep 2026 every
+    #: ball then became a new one: a minute of the 2025 Mosconi Cup had 91
+    #: "balls" for 10.  So at a cut every ball is set aside, and when the
+    #: table is back each is re-found: a ball that stood still is where it
+    #: was, within this many ball diameters (two camera angles place a ball
+    #: an inch or two apart)...
+    reclaim_distance_ball_diameters: float = 2.0
+    #: ...and one that rolled while the camera was away is re-found anywhere
+    #: by its colour, if it is within this fraction of
+    #: ``max_color_distance`` and no other ball set aside is nearly as close.
+    reclaim_colour_ratio: float = 0.55
+    #: A ball set aside waits this long, counting only time with the table in
+    #: view, before it is given up for lost (or potted, if it was heading for
+    #: a pocket when the camera cut away).
+    reclaim_window_s: float = 4.0
 
 
 @dataclass

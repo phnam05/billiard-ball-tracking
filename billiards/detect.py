@@ -172,6 +172,12 @@ _LAB_WEIGHTS = np.array([0.45, 1.0, 1.0])
 _STRIPE_WEIGHT = 40.0
 _DARK_WEIGHT = 60.0
 
+#: The band round the table that should not be cloth (``surround_mask``), in
+#: inches beyond the cushion noses: past the clothed cushion top, over the
+#: wooden rail and onto the floor.
+_SURROUND_INNER_IN = 5.0
+_SURROUND_OUTER_IN = 11.0
+
 
 def colour_distance_matrix(
     a: Sequence["ColorSignature"], b: Sequence["ColorSignature"]
@@ -491,6 +497,9 @@ class BallDetector:
         self._bed_interior: Optional[np.ndarray] = None
         #: The bed without the raised band, when that is searched too.
         self._plain_bed: Optional[np.ndarray] = None
+        #: The band round the table (``surround_mask``), and its frame size.
+        self._surround: Optional[np.ndarray] = None
+        self._surround_shape: Optional[Tuple[int, int]] = None
         self.last_debug: dict = {}
 
     # -- masks -------------------------------------------------------------
@@ -564,6 +573,44 @@ class BallDetector:
             return 0.0
         overlap = int(np.count_nonzero(cv2.bitwise_and(cloth_mask, bed)))
         return overlap / float(bed_area)
+
+    def surround_mask(self, shape: Tuple[int, int]) -> Optional[np.ndarray]:
+        """The band round the table beyond its cushions: the wooden rails and
+        the floor, which are not cloth.  None if most of it is out of the
+        picture, where it can say nothing.  See ``surround_cloth_coverage``."""
+        if self._surround_shape != shape[:2]:
+            self._surround_shape = shape[:2]
+            self._surround = None
+            h, w = shape[:2]
+            outer = self.table.table_to_image(self.table.bed_polygon_table(-_SURROUND_OUTER_IN))
+            inner = self.table.table_to_image(self.table.bed_polygon_table(-_SURROUND_INNER_IN))
+            if np.all(np.isfinite(outer)) and np.all(np.isfinite(inner)):
+                lim = 4.0 * max(h, w)
+                outer, inner = np.clip(outer, -lim, lim), np.clip(inner, -lim, lim)
+                band = np.zeros((h, w), np.uint8)
+                cv2.fillConvexPoly(band, np.round(outer).astype(np.int32), 255)
+                cv2.fillConvexPoly(band, np.round(inner).astype(np.int32), 0)
+                full = abs(cv2.contourArea(outer.astype(np.float32))) - abs(cv2.contourArea(inner.astype(np.float32)))
+                if full > 0 and cv2.countNonZero(band) >= 0.3 * full:
+                    self._surround = band
+        return self._surround
+
+    def surround_cloth_coverage(self, cloth_mask: np.ndarray) -> Optional[float]:
+        """Fraction of the band round the table that looks like cloth.
+
+        Near 0 while the camera is where it was calibrated.  If it pushes in,
+        the cloth spreads out over where the rails and floor were; if it cuts
+        to another view, anything can be there.  Together with the bed's
+        coverage, that says whether this view still fits the picture without
+        fitting the table's outline again -- which on a grey table, whose
+        cushion tops and near rail come and go from the cloth's outline, was
+        wrong often enough to be taken for the camera moving.
+        """
+        band = self.surround_mask(cloth_mask.shape)
+        if band is None:
+            return None
+        area = cv2.countNonZero(band)
+        return cv2.countNonZero(cv2.bitwise_and(cloth_mask, band)) / float(area) if area else None
 
     def foreground_mask(self, frame: np.ndarray, hsv: Optional[np.ndarray] = None,
                         cloth_mask: Optional[np.ndarray] = None) -> np.ndarray:

@@ -6,8 +6,9 @@ table:
   overhead_px_per_inch: 8.0
   calibration_frames: 25
   min_ball_radius_px: 3.0
+  candidate_corner_tolerance: 0.04
   recalibration_tolerance: 0.06
-  recalibration_interval: 150
+  recalibration_interval: 30
   view_change_coverage_ratio: 0.55
   view_change_patience: 3
   view_change_level: 0.031
@@ -44,6 +45,10 @@ cloth:
   min_value: 25
   min_saturation: 25
   analysis_scale: 0.5
+  colour_candidates: 4
+  grey_candidates: 2
+  candidate_min_share: 0.015
+  candidate_margin: 1.25
 detector:
   min_area_ratio: 0.33
   max_area_ratio: 32.0
@@ -81,6 +86,9 @@ tracker:
   stationary_speed_in_s: 4.0
   revive_window_s: 1.5
   revive_distance_ball_diameters: 3.0
+  reclaim_distance_ball_diameters: 2.0
+  reclaim_colour_ratio: 0.55
+  reclaim_window_s: 4.0
 events:
   contact_distance_ball_diameters: 1.25
   min_closing_speed_in_s: 6.0

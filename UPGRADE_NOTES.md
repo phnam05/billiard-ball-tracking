@@ -526,7 +526,8 @@ billiards/
   shots.py       grouping those events into readable shots
   render.py      annotated view and synthetic overhead diagram
   video.py       input, output, CSV/JSON export
-  pipeline.py    orchestration, camera-cut handling, whole-video driver
+  pipeline.py    orchestration, camera cuts and views, whole-video driver (§15)
+  camera.py      how far the camera moved since a view was fitted (§15.4)
   cli.py         command line interface
   fetch.py       a video from a link: look it up, download the part wanted (§13)
   app/           the web app: library, set-up, runs, results, live (§12.2-12.3),
@@ -536,7 +537,8 @@ tools/
                            (positions, speeds, visibility, every event)
   evaluate.py              MOT, speed and event scoring against it
   run_report.py            noise metrics on the real clips, appended to a log
-  robustness.py            the break under other cloths, cameras, sizes (§12.4)
+  robustness.py            the break under other cloths, cameras, sizes (§12.4),
+                           and edited like a broadcast (§15.5)
   venues.py                one real minute from each of 11 venues, no ground truth (§14)
 legacy/          the original v1 code, kept for comparison
 reports/         run-log.json: one entry per change-and-re-measure cycle
@@ -1045,3 +1047,154 @@ and the WPA final keep the usual estimate.
   it does not run off the picture, and it is mostly cloth.
 * No ground truth for any of these, so there is no accuracy figure. These are
   counts and pictures (`results/venues.png`, `results/venues/*.mp4`).
+
+---
+
+## 15. Tournament broadcasts (28 Sep 2026, afternoon): the same balls across cuts
+
+A minute of 9-ball has at most 10 balls. The frame loop, run on three of the
+§14 minutes, found 91 (2025 Mosconi Cup), 129 (2026 Premier League final) and
+48 (2025 UK Open), counting each tracker's ids separately.
+
+### 15.1 What went wrong
+
+* **The tracker was rebuilt whenever the table's outline looked different.**
+  A cut to another camera did that, and so did the same camera: on grey
+  cloth the clothed cushion tops are in one frame's outline and not the
+  next, so the Premier League's table was "recalibrated" every 5 s without
+  a cut, and each time every ball got a new id.
+* **Ids restarted at 1 after each rebuild**, so `tracks.csv` had different
+  balls under the same `track_id`. `tools/venues.py` counts ids, which is why
+  it reported only 31 balls for that minute.
+* **A cut back to the same camera** resumed the old tracks, but a ball that
+  rolled while the camera was away was coasted, lost and replaced by a new
+  one. If it coasted near a pocket, it was also reported potted.
+* **The periodic re-check never ran on 60 fps broadcasts.** It ran on frames
+  numbered a multiple of 150, and on footage that repeats every frame those
+  were all repeats, which skip it.
+* **A median of recovery outlines could cross itself.** A frame's corners can
+  start at either of two near corners, and a per-corner median across the two
+  orders mixes corners of two tables.
+
+### 15.2 One tracker, balls set aside at a cut — `track.py`
+
+At a cut every ball is set aside (`MultiObjectTracker.set_aside`). While the
+table is out of view the balls roll on under their motion model: slowing,
+and off the cushions (`coast_aside`). When it is back they are re-found in one
+optimal assignment (`_reclaim`):
+
+* within `reclaim_distance_ball_diameters` (2) of where the model put them,
+  plus a fifth of how far it moved them, looking like them;
+* anywhere, if the colour is close (`reclaim_colour_ratio` 0.55) and no other
+  ball set aside is nearly as close;
+* a ball hidden on the first frames back is found by its new track when that
+  track is confirmed (`_absorb`).
+
+A ball not found after `reclaim_window_s` (4 s) with the table in view is
+given up: potted if it was heading into a pocket at the cut, otherwise lost.
+Numbers held by balls set aside are not given to anyone else. The event
+detector forgets every path at a cut, and calls nothing *struck* for 0.3 s
+after, since a ball picked up mid-roll starts from a filter at rest.
+
+### 15.3 Views, not rebuilds — `pipeline.py`
+
+Each camera view is remembered with its detector and drawing (up to 8). The
+tracker is never rebuilt.
+
+* **A view seen before** is recognised without fitting an outline
+  (`_aligned`): its bed is at least 0.9 cloth, and a band 5–11 in beyond the
+  cushion noses (rail and floor) is no more cloth than when the view was
+  fitted plus 0.1, or at most 0.2. On the Premier League a push-in raised the
+  band from 0.10 to 0.34 and the US Open's second camera to 0.62, with the bed
+  at 0.96 both times. The band must be in the picture: without that, close-ups
+  of the cloth passed as the table at the Mosconi Cup. The first view's band is
+  measured on its calibration frames. Taken from whatever frame came first, it
+  was once a close-up at 0.50, and every close-up passed.
+* **A new view** is fitted as the first was, cushion noses included, and then
+  laid over the table in whichever of four ways puts the most balls where
+  they are expected (`_turned_to_match`): as fitted, turned end for end,
+  mirrored, or both. Mirrored is new (`TableModel.mirrored`). Which image edge
+  is the table's length is decided per view, and taking the other axis is a
+  reflection, so a camera across a long rail saw the table mirrored relative
+  to one behind an end rail.
+* An outline counts as evidence of a new view only if every edge follows the
+  cloth's boundary for 60% of its length (`geometry.outline_support`). On the
+  Premier League, outlines that put one corner on a side pocket fitted the same
+  way on five frames running.
+* Outlines are fitted at 640 px, where a pixel is cloth only if all of it was.
+  Shrunk by sampling, the line under the cushion nose disappeared and a new
+  view came out 6 in too big. Shrunk this way it is 0.8 in, against 0.5 at
+  full size. While the table is out of view, an outline is fitted 15 times a
+  second, not on every frame.
+* The re-check runs every 30 measured frames (it was every 150 frame numbers),
+  sooner while the bed is under 0.85 of its usual cloth. A clip that opens on
+  something else, like the Mosconi Cup's arena, starts with tracking paused.
+
+### 15.4 Following the camera — `camera.py`
+
+Broadcast cameras push in and pan during play, and an outline refitted then
+is often spoiled: on the Premier League final the push-in came while the
+player was down on the shot, over the near rail. Each view keeps a keyframe.
+When the view stops fitting, ORB features round the table (the bed and 14 in
+beyond, leaving out the top 7% and bottom 16% of the picture, where the score
+graphics are) are matched to the current frame, and one homography is fitted
+with RANSAC. At least 30 matches, and 35% of them, must agree. The table's
+corners are carried along (`camera.carried`), in the same order and
+handedness, which is checked. On that minute 8 camera moves were followed, and
+each carried outline lies on the cushion noses. The first calibration there
+took in the grey cushion tops, and the first move corrected it.
+
+### 15.5 Measured
+
+`tools/robustness.py` has a new variant, *cuts*: the break is filmed from the
+end rail, cuts to a player 1.4 s after the break (0.8 s, with the balls still
+rolling), comes back on a camera across the table, cuts to the crowd (0.6 s),
+and returns to the end rail. `evaluate.py` now reports *ids per ball*.
+
+| Simulated *cuts* clip | Morning | Now |
+|---|---|---|
+| MOTA | 0.404 | 0.782 |
+| precision | 0.762 | 1.000 |
+| ID switches | 13 | 3 |
+| ids per ball (1 is ideal) | 2.3 | 1.2 |
+| the across-the-table segment, MOTA (in the first view's frame) | −0.69 | 0.70 |
+
+The 16 other variants score as in the morning, to four decimals.
+`run_report.py --ground-truth` (12:53) is unchanged too: synthetic 0.844 /
+0.816, and the sample clips report the same tracks, events and shots.
+`albin_fedor`'s speed jitter fell from 12.8 to 10.9 in/s, because its one cut
+no longer interrupts the tracks.
+
+The frame loop on real minutes (`scratchpad` diagnostic; balls = ids on at
+least 15 frames, per tracker), the same computer, back to back:
+
+| Minute | Balls, morning → now | Seconds per minute of footage |
+|---|---|---|
+| 2025 Mosconi Cup | 91 → 44 | 35.1 → 31.0 |
+| 2026 Premier League final | 129 → 33 | 42.6 → 36.9 |
+| 2025 UK Open | 48 → 26 | 22.4 → 23.8 |
+| sample (`albin_fedor`) | 7 → 7 | |
+
+### 15.6 Not done, or worse
+
+* **Still 3–4 times too many balls** on the broadcast minutes. What is left is
+  phantoms (hands on the rail, pocket shadows, the cue ball's reflection) and
+  balls that moved too far while the camera was away to be found again.
+* **The Mosconi count rose from 35 to 44** once its overhead camera was
+  recognised as a view of its own. Before, it was taken for the end-rail view
+  (tracked on the wrong geometry); now it is tracked, and adds ids.
+* **The UK Open got 6% slower**, and reports twice the contacts (15 → 30),
+  which were not checked against the video.
+* While the table is out of view, recovery can switch between two known views
+  on alternate tries before it settles (Premier League, frames 569–603).
+* **Replays are tracked as play.** A slow-motion replay from a known camera
+  fits that view, so its shot is counted again.
+* A camera move is noticed at the next re-check, up to 30 frames late; the
+  Premier League's push-in during a dissolve was tracked on the old outline
+  for about 35 frames.
+* **No unit tests yet** for setting aside, re-finding, views, mirroring or
+  camera following; they are covered only by the *cuts* variant and the venue
+  minutes.
+* Not tried on real CCTV footage. Candidate clips were found (a ceiling camera
+  over a club table, a home security camera at 640×480, amateur league
+  matches from a tripod) but not tracked.

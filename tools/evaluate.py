@@ -170,6 +170,9 @@ def evaluate(
     errors: List[float] = []
     id_switches = 0
     last_id: Dict[str, int] = {}
+    #: Every track id each ball was matched to.  One per ball is the ideal: a
+    #: ball that becomes a new one at every camera cut has one per shot.
+    ids_of: Dict[str, set] = defaultdict(set)
     per_ball_matched: Dict[str, int] = defaultdict(int)
     per_ball_total: Dict[str, int] = defaultdict(int)
     speed_abs: List[float] = []
@@ -209,6 +212,7 @@ def evaluate(
             name = g[r][0]
             tid = t[c][0]
             per_ball_matched[name] += 1
+            ids_of[name].add(tid)
             if name in last_id and last_id[name] != tid:
                 id_switches += 1
             last_id[name] = tid
@@ -253,6 +257,7 @@ def evaluate(
             "p95": round(float(np.nanpercentile(err, 95)), 3),
             "max": round(float(np.nanmax(err)), 3),
         },
+        "ids_per_ball": round(float(np.mean([len(v) for v in ids_of.values()])), 2) if ids_of else None,
         "per_ball_recall": {
             name: round(per_ball_matched[name] / per_ball_total[name], 3)
             for name in sorted(per_ball_total)
