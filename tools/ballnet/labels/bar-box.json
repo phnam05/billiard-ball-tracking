@@ -1,0 +1,14 @@
+{
+ "-1": "skip",
+ "1": "maroon", "2": "black", "3": "red-stripe", "4": "ball", "5": "orange-stripe", "6": "blue-stripe",
+ "7": "purple-stripe", "8": "cue", "10": "orange", "11": "ball", "12": "yellow",
+ "13": "purple", "14": "blue", "15": "yellow-stripe", "17": "green", "18": "maroon-stripe", "26": "maroon",
+ "27": "ball", "38": "orange-stripe", "44": "ball", "48": "blue", "58": "maroon-stripe", "51": "red",
+ "60": "orange-stripe", "61": "black", "62": "red", "63": "blue-stripe", "65": "ball", "67": "maroon",
+ "39": "ball", "45": "skip", "21": "blue-stripe", "59": "ball", "30": "no", "50": "skip",
+ "66": "no", "57": "purple", "56": "no", "69": "ball", "9": "yellow", "55": "no", "20": "no", "49": "purple",
+ "54": "no", "46": "skip", "70": "ball",
+ "68": "no", "19": "no", "25": "ball", "28": "no", "41": "no", "52": "no", "64": "ball", "16": "no", "22": "no",
+ "23": "ball", "24": "no", "29": "no", "31": "no", "32": "no", "33": "no", "34": "no", "35": "no", "36": "no",
+ "37": "no", "40": "ball", "42": "no", "43": "no", "47": "blue", "53": "no"
+}

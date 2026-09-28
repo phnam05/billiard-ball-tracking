@@ -1,0 +1,5 @@
+{
+ "default": "no", "-1": "skip",
+ "1": "green-stripe", "2": "black", "3": "yellow", "4": "maroon", "5": "maroon", "6": "cue", "7": "ball",
+ "8": "pink", "9": "ball", "12": "green-stripe", "14": "red", "16": "cue", "19": "black", "27": "cue", "41": "ball"
+}

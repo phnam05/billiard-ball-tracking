@@ -39,8 +39,10 @@ def test_settings_become_a_tracker_config():
     assert cfg.balls.ball_set == "tv" and cfg.max_frame_width == 960
     # The app draws its own diagram, so its videos are the picture alone.
     assert cfg.render.overhead_panel is False and cfg.render.draw_hud is False
-    assert cfg.detector.search_raised_bed is False
-    assert build_config(clean_settings({"far_cushion": True})).detector.search_raised_bed is True
+    # The far cushion is searched by default since 28 Sep 2026 (the ball model
+    # turns down what else is there), and can be turned off.
+    assert cfg.detector.search_raised_bed is True
+    assert build_config(clean_settings({"far_cushion": False})).detector.search_raised_bed is False
 
 
 def test_upload_names_are_made_safe():

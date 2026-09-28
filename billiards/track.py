@@ -53,14 +53,37 @@ _MAX_EIGHT_CHROMA = 14.0
 
 #: The evidence for each ball set is remembered with this weight per frame, and
 #: the set in use changes only once another is ahead by this much (in squared
-#: cost units: one ball fitting 2 units better for one frame is 4).
-_SET_EVIDENCE_DECAY = 0.98
+#: cost units: one ball fitting 2 units better for one frame is 4).  Only a
+#: few balls tell the sets apart -- a pink one, an orange one, a stripe's
+#: caps -- and once they are potted nothing does: remembered at 0.98 a frame,
+#: the pink 4 of the 2026 Premier League final was forgotten two seconds after
+#: it dropped, and the purple 5 became the 4 of the other set.
+_SET_EVIDENCE_DECAY = 0.999
 _SET_SWITCH_MARGIN = 6.0
+
+#: A ball set aside at a cut and looked for in a camera view it has not been
+#: seen in is compared with the colour another camera gave it, through a gate
+#: this many times looser (``MultiObjectTracker._reclaim_cost``).
+_CROSS_VIEW_COLOUR = 1.8
+
+#: With the ball model, each ball's answers are averaged with this weight per
+#: detection, once it has a few; a track is confirmed only if its average
+#: chance of being a ball is at least ``_MODEL_CONFIRM``; and a ball is the
+#: cue ball or the 8 only if the model gives it at least ``_MODEL_ROLE``
+#: (the holder keeps it down to ``_ROLE_HOLD_RATIO`` of that).
+_MODEL_ALPHA = 0.06
+_MODEL_CONFIRM = 0.5
+_MODEL_ROLE = 0.5
 
 #: How much better a rival has to score before a role changes hands.  Two
 #: similar-looking balls otherwise trade the "CUE" label back and forth every
 #: few frames, which is worse than being slightly wrong consistently.
 _ROLE_STICKINESS = 0.10
+
+
+def balls_model_black() -> int:
+    """Where black is among the ball model's colour families."""
+    return ballnum.MODEL_FAMILIES.index("black")
 
 
 class TrackState(Enum):
@@ -88,7 +111,8 @@ class Track:
         "time_since_update", "trail", "last_image_xy", "last_radius_px",
         "birth_frame", "death_frame", "death_reason", "_trail_cap",
         "last_observed_xy", "role", "number", "clean_samples", "band_hits",
-        "aside_frame", "aside_frames",
+        "aside_frame", "aside_frames", "view_colour",
+        "ball_evidence", "cue_evidence", "family_logp", "stripe_evidence", "model_samples",
     )
 
     def __init__(
@@ -138,6 +162,24 @@ class Track:
         #: has waited since.
         self.aside_frame: Optional[int] = None
         self.aside_frames = 0
+        #: What this ball looks like from each camera view
+        #: (``MultiObjectTracker.set_view``).  Two cameras do not show a ball
+        #: in the same colour: on the 2026 US Open the same balls, found again
+        #: 0.3-3 in from where they were after a cut, differed by 45-104 in
+        #: colour distance from what the other camera had shown, against a
+        #: gate of 42, and were taken for new balls.
+        self.view_colour: Dict[int, ColorSignature] = {}
+        #: What the ball model (``billiards.ballnet``) has made of this ball,
+        #: averaged over its detections: the chance it is a ball at all, and --
+        #: over detections of it on its own -- that it is the cue ball, the
+        #: log chance of each colour family, the chance it is a stripe.  None
+        #: without the model.
+        self.ball_evidence: Optional[float] = None
+        self.cue_evidence: Optional[float] = None
+        self.family_logp: Optional[np.ndarray] = None
+        self.stripe_evidence: Optional[float] = None
+        self.model_samples = 0
+        self._learn_model(detection)
 
     # -- properties --------------------------------------------------------
 
@@ -188,12 +230,32 @@ class Track:
 
     # -- filter interaction ------------------------------------------------
 
+    def _learn_model(self, detection: Detection) -> None:
+        """Fold one detection's ball-model answers into this ball's."""
+        if detection.family_p is None:
+            return
+        n_all = self.hits
+        a = max(_MODEL_ALPHA, 1.0 / max(1, n_all))
+        self.ball_evidence = detection.ball_p if self.ball_evidence is None else (
+            (1.0 - a) * self.ball_evidence + a * detection.ball_p)
+        if not detection.colour_ok:
+            return
+        self.model_samples += 1
+        a = max(_MODEL_ALPHA, 1.0 / self.model_samples)
+        logp = np.log(np.clip(detection.family_p, 1e-4, 1.0))
+        if self.family_logp is None:
+            self.cue_evidence, self.family_logp, self.stripe_evidence = detection.cue_p, logp, detection.stripe_p
+        else:
+            self.cue_evidence = (1.0 - a) * self.cue_evidence + a * detection.cue_p
+            self.family_logp = (1.0 - a) * self.family_logp + a * logp
+            self.stripe_evidence = (1.0 - a) * self.stripe_evidence + a * detection.stripe_p
+
     def predict(self, dt: float) -> None:
         self.kf.predict(dt)
         self.age += 1
         self.time_since_update += 1
 
-    def update(self, detection: Detection, cfg: Config) -> None:
+    def update(self, detection: Detection, cfg: Config, view: int = 0) -> None:
         self.kf.update(detection.centre_table)
         self.hits += 1
         if detection.in_raised_band:
@@ -213,6 +275,12 @@ class Track:
         # detection clipped by the cue stick or taken mid-collision has a
         # contaminated colour, and a fast average would let it poison the
         # identity the tracker relies on.
+        #
+        # Learning a new camera's colour quickly instead (as fast as a new
+        # ball's) was tried on 28 Sep 2026: a broadcast camera that pushes in
+        # or pans becomes a new view each time (2026 Premier League final:
+        # eight), and balls relearning their colour at every one traded
+        # identities -- 1.9 to 2.6 ids per ball against the answer key.
         if detection.colour_ok:
             self.clean_samples += 1
             if self.clean_samples == 1:
@@ -220,12 +288,19 @@ class Track:
             else:
                 alpha = max(0.08, 1.0 / self.clean_samples)
                 self.signature = self.signature.blend(detection.signature, alpha)
+            self.view_colour[view] = self.signature
+        self._learn_model(detection)
 
         if self.state is TrackState.TENTATIVE:
             # Seen mostly past the far edge, it never rolled there from the
             # bed: a hand on the rail, or a ball's own top in the shadow under
-            # the cushion's nose.  It is never confirmed.
-            if self.hits >= cfg.tracker.min_hits_to_confirm and 2 * self.band_hits <= self.hits:
+            # the cushion's nose.  It is never confirmed.  Nor is one the ball
+            # model mostly thinks is not a ball.
+            if (
+                self.hits >= cfg.tracker.min_hits_to_confirm
+                and 2 * self.band_hits <= self.hits
+                and (self.ball_evidence is None or self.ball_evidence >= _MODEL_CONFIRM)
+            ):
                 self.state = TrackState.CONFIRMED
         elif self.state is TrackState.COASTING:
             self.state = TrackState.CONFIRMED
@@ -287,10 +362,16 @@ class MultiObjectTracker:
         self.limbo: List[Track] = []
         self.revived = 0
         self._limbo_frames = max(1, int(round(cfg.tracker.revive_window_s * self.fps)))
+        #: Balls lost -- out of limbo, not potted -- waiting longer still, for
+        #: a ball just like them where they were (``_revive``).
+        self.gone: List[Track] = []
+        self._gone_frames = int(round(cfg.tracker.lost_revive_window_s * self.fps))
         #: Balls set aside at a camera cut, waiting to be seen again.  See
         #: ``set_aside`` and ``_reclaim``.
         self.aside: List[Track] = []
         self.reclaimed = 0
+        #: The camera view being tracked in (``set_view``).
+        self.view = 0
         self._aside_frames = max(1, int(round(cfg.tracker.reclaim_window_s * self.fps)))
         trail_seconds = cfg.render.trail_seconds if cfg.render.trail_seconds > 0 else 8.0
         self._trail_cap = int(max(8, round(trail_seconds * self.fps)))
@@ -363,7 +444,7 @@ class MultiObjectTracker:
         for ti, di in matches:
             track = self.tracks[ti]
             was_tentative = track.state is TrackState.TENTATIVE
-            track.update(detections[di], self.cfg)
+            track.update(detections[di], self.cfg, self.view)
             if was_tentative and track.state is TrackState.CONFIRMED:
                 confirmed_now.append(track)
 
@@ -449,6 +530,8 @@ class MultiObjectTracker:
     def _spawn(self, detection: Detection, frame: int) -> None:
         track = Track(self._next_id, detection, self.cfg, frame, self._trail_cap)
         self._next_id += 1
+        if detection.colour_ok:
+            track.view_colour[self.view] = track.signature
         self.tracks.append(track)
 
     def _retire(self, frame: int) -> None:
@@ -502,30 +585,21 @@ class MultiObjectTracker:
         to where it vanished is that ball, not a new one, and its death (and
         any pot) is withdrawn.
         """
-        if not self.limbo:
+        if not self.limbo and not self.gone:
             return False
         tc = self.cfg.tracker
-        det = np.asarray(detection.centre_table, dtype=np.float64)
-        colours = colour_distance_matrix([t.signature for t in self.limbo], [detection.signature])[:, 0]
-        best, best_cost = None, None
-        for track, colour in zip(self.limbo, colours):
-            # A ball that vanished while rolling -- off the far rail, where it
-            # cannot be seen -- turns up further along, so the reach grows with
-            # how fast it was going and how long it has been gone.
-            gone_s = max(0, frame - (track.death_frame or frame)) / self.fps
-            reach = (
-                tc.revive_distance_ball_diameters * self.table.ball_diameter_in
-                + track.speed * gone_s
-            )
-            gap = float(np.linalg.norm(np.asarray(track.last_observed_xy) - det))
-            if gap > reach or colour > tc.max_color_distance:
-                continue
-            cost = gap / reach + colour / tc.max_color_distance
-            if best_cost is None or cost < best_cost:
-                best, best_cost = track, cost
-        if best is None:
-            return False
-        self.limbo.remove(best)
+        best = self._revivable(self.limbo, detection, frame, tc.revive_distance_ball_diameters, True)
+        if best is not None:
+            self.limbo.remove(best)
+        else:
+            # A ball lost for longer is looked for only where it was, and only
+            # in something the ball model, if it looked, takes for a ball.
+            if detection.ball_p < _MODEL_CONFIRM:
+                return False
+            best = self._revivable(self.gone, detection, frame, tc.lost_revive_distance_ball_diameters, False)
+            if best is None:
+                return False
+            self.gone.remove(best)
         best.kf = BallKalman(
             detection.centre_table,
             velocity_tau_s=tc.velocity_tau_s,
@@ -537,12 +611,50 @@ class MultiObjectTracker:
         best.state = TrackState.CONFIRMED
         best.death_frame = None
         best.death_reason = None
-        best.update(detection, self.cfg)
+        best.update(detection, self.cfg, self.view)
         self.tracks.append(best)
         self.revived += 1
         return True
 
+    def _revivable(self, waiting: Sequence[Track], detection: Detection, frame: int,
+                   reach_diameters: float, rolling: bool) -> Optional[Track]:
+        """The ball among ``waiting`` this detection is, if any."""
+        if not waiting:
+            return None
+        tc = self.cfg.tracker
+        det = np.asarray(detection.centre_table, dtype=np.float64)
+        colours = colour_distance_matrix([t.signature for t in waiting], [detection.signature])[:, 0]
+        best, best_cost = None, None
+        for track, colour in zip(waiting, colours):
+            # A ball that vanished while rolling -- off the far rail, where it
+            # cannot be seen -- turns up further along, so the reach grows with
+            # how fast it was going and how long it has been gone.
+            gone_s = max(0, frame - (track.death_frame or frame)) / self.fps
+            reach = reach_diameters * self.table.ball_diameter_in + (track.speed * gone_s if rolling else 0.0)
+            gap = float(np.linalg.norm(np.asarray(track.last_observed_xy) - det))
+            if gap > reach or colour > tc.max_color_distance:
+                continue
+            cost = gap / reach + colour / tc.max_color_distance
+            if best_cost is None or cost < best_cost:
+                best, best_cost = track, cost
+        return best
+
     # -- camera cuts ------------------------------------------------------
+
+    def set_view(self, view: int) -> None:
+        """Track in camera view ``view`` from now on.
+
+        Each ball takes the colour it has in that camera, if it has been seen
+        there; otherwise it keeps the last camera's, and is looked for more
+        loosely when it is set aside (``_reclaim_cost``).
+        """
+        if view == self.view:
+            return
+        for track in list(self.tracks) + list(self.aside) + list(self.limbo) + list(self.gone):
+            own = track.view_colour.get(view)
+            if own is not None:
+                track.signature = own
+        self.view = view
 
     def set_aside(self, frame: int) -> None:
         """The camera has cut away from the table: set every ball aside.
@@ -621,9 +733,14 @@ class MultiObjectTracker:
         near = near + 0.2 * rolled[:, None]
         dist = np.linalg.norm(last[:, None, :] - np.asarray(xy, dtype=np.float64).reshape(m, 2)[None], axis=2)
         colour = colour_distance_matrix([t.signature for t in self.aside], signatures)
+        # A ball not yet seen from this camera is compared with the colour
+        # another camera gave it, and more loosely.
+        gates = np.array([
+            cmax if self.view in t.view_colour else _CROSS_VIEW_COLOUR * cmax for t in self.aside
+        ])[:, None]
 
-        near_ok = (dist <= near) & (colour <= cmax)
-        cost[near_ok] = (dist / near + colour / cmax)[near_ok]
+        near_ok = (dist <= near) & (colour <= gates)
+        cost[near_ok] = (dist / near + colour / gates)[near_ok]
 
         ordered = np.sort(colour, axis=0)
         runner_up = ordered[1] if n > 1 else np.full(m, np.inf)
@@ -674,8 +791,13 @@ class MultiObjectTracker:
         taken = set()
         for ai, j in sorted(matches, key=lambda p: -p[0]):
             track = self.aside[ai]
+            new_camera = self.view not in track.view_colour
             self._give_back(track, dets[j].centre_table, frame)
-            track.update(dets[j], self.cfg)
+            if new_camera and dets[j].colour_ok:
+                # Found in a camera it has not been seen in: this is what it
+                # looks like here, and what it is followed by from now on.
+                track.signature = dets[j].signature
+            track.update(dets[j], self.cfg, self.view)
             taken.add(usable[j])
         return [di for di in candidates if di not in taken]
 
@@ -691,6 +813,9 @@ class MultiObjectTracker:
         for ai, j in sorted(matches, key=lambda p: -p[0]):
             old, new = self.aside[ai], newcomers[j]
             self.aside.remove(old)
+            if self.view not in old.view_colour and new.clean_samples:
+                old.signature = new.signature
+                old.view_colour[self.view] = new.signature
             # The ball keeps its name, and takes over what its new track has
             # measured since: the filter, the path, the last sighting.
             old.kf = new.kf
@@ -726,22 +851,31 @@ class MultiObjectTracker:
             )
             track.kill(track.aside_frame if track.aside_frame is not None else frame,
                        "potted" if potted and track.speed > self.cfg.tracker.stationary_speed_in_s else "lost")
-            self.finished.append(track)
+            (self.gone if track.death_reason == "lost" and self._gone_frames > 0 else self.finished).append(track)
         self.aside = keep
 
     def _expire_limbo(self, frame: int) -> None:
         keep: List[Track] = []
         for track in self.limbo:
             if track.death_frame is not None and frame - track.death_frame >= self._limbo_frames:
-                self.finished.append(track)
+                (self.gone if track.death_reason == "lost" and self._gone_frames > 0 else self.finished).append(track)
             else:
                 keep.append(track)
         self.limbo = keep
+        keep = []
+        for track in self.gone:
+            if track.death_frame is not None and frame - track.death_frame >= self._gone_frames:
+                self.finished.append(track)
+            else:
+                keep.append(track)
+        self.gone = keep
 
     def flush_limbo(self) -> None:
         """End of clip: nothing more can come back."""
         self.finished.extend(self.limbo)
+        self.finished.extend(self.gone)
         self.limbo = []
+        self.gone = []
 
     def flush_aside(self, frame: int) -> None:
         """End of clip: balls still set aside at a cut were not seen again."""
@@ -766,7 +900,7 @@ class MultiObjectTracker:
 
     def rescale_time(self, factor: float) -> None:
         """Every ball's velocity, in a clock ``factor`` times faster."""
-        for track in list(self.tracks) + list(self.limbo) + list(self.aside):
+        for track in list(self.tracks) + list(self.limbo) + list(self.aside) + list(self.gone):
             track.kf.rescale_time(factor)
 
     def _clock_tracks(self, min_speed_in_s: float, settled: bool = False) -> List[Track]:
@@ -830,7 +964,7 @@ class MultiObjectTracker:
         return [t for t in self.tracks if t.is_visible]
 
     def all_tracks(self) -> List[Track]:
-        return list(self.tracks) + list(self.aside) + list(self.limbo) + list(self.finished)
+        return list(self.tracks) + list(self.aside) + list(self.limbo) + list(self.gone) + list(self.finished)
 
     def assign_roles(self) -> None:
         """Decide which single track is the cue ball, and which is the 8.
@@ -852,21 +986,43 @@ class MultiObjectTracker:
         if not confirmed:
             return
 
-        def cue_like(t: Track, bar: float = 1.0) -> bool:
-            L, C = t.signature.lightness_chroma
-            return L >= _MIN_CUE_LIGHTNESS * bar and C <= _MAX_CUE_CHROMA / bar
+        if all(t.family_logp is not None for t in confirmed):
+            # The ball model's word for it, where every ball has one.
+            black = balls_model_black()
 
-        def eight_like(t: Track, bar: float = 1.0) -> bool:
-            L, C = t.signature.lightness_chroma
-            black = max(t.signature.dark_fraction, 1.0 - L / 128.0)
-            return black >= _MIN_EIGHT_BLACK * bar and C <= _MAX_EIGHT_CHROMA / bar
+            def cue_score(t: Track) -> float:
+                return float(t.cue_evidence)
 
-        cue = self._pick_role(confirmed, "cue", lambda t: t.signature.cue_score, cue_like)
+            def eight_score(t: Track) -> float:
+                return float(np.exp(t.family_logp[black])) * (1.0 - float(t.cue_evidence))
+
+            def cue_like(t: Track, bar: float = 1.0) -> bool:
+                return cue_score(t) >= _MODEL_ROLE * bar
+
+            def eight_like(t: Track, bar: float = 1.0) -> bool:
+                return eight_score(t) >= _MODEL_ROLE * bar
+        else:
+            def cue_score(t: Track) -> float:
+                return t.signature.cue_score
+
+            def eight_score(t: Track) -> float:
+                return t.signature.eight_score
+
+            def cue_like(t: Track, bar: float = 1.0) -> bool:
+                L, C = t.signature.lightness_chroma
+                return L >= _MIN_CUE_LIGHTNESS * bar and C <= _MAX_CUE_CHROMA / bar
+
+            def eight_like(t: Track, bar: float = 1.0) -> bool:
+                L, C = t.signature.lightness_chroma
+                black = max(t.signature.dark_fraction, 1.0 - L / 128.0)
+                return black >= _MIN_EIGHT_BLACK * bar and C <= _MAX_EIGHT_CHROMA / bar
+
+        cue = self._pick_role(confirmed, "cue", cue_score, cue_like)
 
         if not self.table.has_pockets:
             return  # carom: no 8 ball
         rest = [t for t in confirmed if t is not cue]
-        self._pick_role(rest, "eight", lambda t: t.signature.eight_score, eight_like)
+        self._pick_role(rest, "eight", eight_score, eight_like)
 
     def _pick_role(self, candidates, role, score, eligible):
         """Give ``role`` to the best-scoring eligible track, stickily.
@@ -925,38 +1081,57 @@ class MultiObjectTracker:
         if not candidates:
             return
         # A ball set aside at a cut keeps its number too, which is also what
-        # lets it be found again by colour rather than as a rival 7.
+        # lets it be found again by colour rather than as a rival 7.  A potted
+        # ball's number is kept from the rest, unless the ball model is naming
+        # them: then a ball of that colour on the table is that ball -- the pot
+        # was wrong, or it is a new rack (the 2026 US Open highlights run two
+        # racks, and every ball potted in the first went unnamed in the second).
+        modelled = any(t.family_logp is not None for t in self.tracks)
         taken = {
             t.number for t in list(self.limbo) + list(self.finished) + list(self.aside)
             if t.number is not None
-            and (t in self.limbo or t in self.aside or t.death_reason == "potted")
+            and (t in self.limbo or t in self.aside or (t.death_reason == "potted" and not modelled))
         }
         allowed = [n for n in self._allowed_numbers if n not in taken]
-        observed = []
-        for t in candidates:
-            L, hue, C = ballnum.colour_terms(t.signature.ball_colour)
-            observed.append((L, hue, C, t.signature.stripe, t.signature.dark_fraction))
         current = [t.number for t in candidates]
+        # The ball model's colour and pattern, where every ball has them
+        # (``ballnum.model_cost_matrix``); otherwise the colour measured off
+        # the picture, against a palette (``ballnum.cost_matrix``).
+        by_model = all(t.family_logp is not None for t in candidates)
+        if by_model:
+            fam = [t.family_logp for t in candidates]
+            stripe = [t.stripe_evidence for t in candidates]
+            max_cost = bc.model_max_cost
+        else:
+            observed = []
+            for t in candidates:
+                L, hue, C = ballnum.colour_terms(t.signature.ball_colour)
+                observed.append((L, hue, C, t.signature.stripe, t.signature.dark_fraction))
+            max_cost = bc.max_cost
 
         results = {}
         for name in self._ball_sets:
             specs = ballnum.ball_specs(name, allowed)
-            numbers, _, scales = ballnum.assign(
-                observed, specs, bc.max_cost, current, bc.stickiness,
-                *self._set_scales[name],
-            )
+            if by_model:
+                raw = ballnum.model_cost_matrix(fam, stripe, specs, [t.signature.dark_fraction for t in candidates])
+                numbers = ballnum.assign_costs(raw, specs, max_cost, current, bc.model_stickiness)
+            else:
+                numbers, _, scales = ballnum.assign(
+                    observed, specs, bc.max_cost, current, bc.stickiness,
+                    *self._set_scales[name],
+                )
+                self._set_scales[name] = scales
+                raw = ballnum.cost_matrix(observed, specs, *scales)
             results[name] = numbers
-            self._set_scales[name] = scales
             # Evidence for this set: the squared cost of every ball under it,
             # an unnumbered one counting as the most a number may cost.  A sum,
             # not a mean, and accumulated, because usually a single ball is
             # all that tells the two sets apart -- a pink or orange one, or a
             # stripe's caps -- and averaged over the whole table its voice
             # was lost: fedor_jump's 9, black-capped, was named the orange 13.
-            raw = ballnum.cost_matrix(observed, specs, *scales)
             index = {s.number: j for j, s in enumerate(specs)}
             energy = float(sum(
-                min(raw[i, index[n]], bc.max_cost) ** 2 if n is not None else bc.max_cost ** 2
+                min(raw[i, index[n]], max_cost) ** 2 if n is not None else max_cost ** 2
                 for i, n in enumerate(numbers)
             ))
             self._set_fit[name] = _SET_EVIDENCE_DECAY * self._set_fit.get(name, 0.0) + energy

@@ -5,6 +5,48 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-28
 
+### Added (evening): answer keys for real footage, and a learned ball check
+
+- **Answer keys for four real clips** (`tools/truth/`): the 2026 US Open 3
+  min, the 2026 Premier League final minute, a ceiling camera over a club
+  table and an amateur 8-ball match from a tripod, marked by hand on
+  keyframes. **`tools/real_eval.py`** scores a run against them (balls found,
+  tracks that are balls, numbers right and wrong, ids per ball, phantoms, what
+  was drawn in replays and close-ups) at any checkout; `run_report.py --real`
+  logs it. The US Open "got worse" (25 → 66 balls) was a counting artefact:
+  the older code restarted its ids at every camera change. Against the key,
+  `49446ee` scored 0.83 there against 0.35 before it; only its ball numbers
+  were worse.
+- **A learned check on every proposed ball** (`billiards/ballnet.py`,
+  `billiards/models/ballnet.onnx`, 288 KB): is it a ball, the cue ball, which
+  colour, a stripe. It drops chalk, knuckles and pocket shadows, keeps balls
+  the shape tests turned down (a ball welded to its shadow, balls in a clump),
+  and names the balls in place of the colour palette. It runs through OpenCV,
+  so nothing new is needed to use it; `tools/ballnet_data.py` and
+  `tools/train_ballnet.py` (PyTorch) rebuild it from `tools/ballnet/`.
+  `detector.ball_model: off`, or `BILLIARDS_BALLNET=off`, turns it off.
+- **Someone walking past the lens is no longer a cut**: when the rest of the
+  bed is the picture it was and still cloth, tracking goes on and the hidden
+  balls coast.
+- **A ball keeps a colour per camera**, and is found again after a cut to a
+  camera that shows it differently.
+- **A lost ball waits 20 s** for a ball like it where it was
+  (`tracker.lost_revive_window_s`).
+- **Grey cloth measured with no colour is told apart without hue**: a ceiling
+  camera's table had been fitted 3 in short of both end cushions.
+- **Balls against the far cushion are searched for by default**
+  (`detector.search_raised_bed`, the app's *far cushion* option).
+- Ball numbers: a potted ball's number is free again with the model (a new
+  rack); the ball set's evidence is kept for about 40 s, not 2; brown and
+  orange count for each other at half weight; a stripe's caps still count.
+- Measured: answer keys US Open 0.83 → 0.94, Premier League 0.71 → 0.79,
+  ceiling camera 0.68 → 1.00, tripod 0.49 → 0.74. Synthetic break MOTA 0.844
+  → 0.910, screen-recorded 0.816 → 0.917, every robustness variant higher.
+  `albin_fedor`'s missed pot of the 5 is now reported. Costs: more ID
+  switches on the screen-recorded break (2 → 10), speed error 4.9% → 5.5%
+  there, `fedor_jump` 3 cushions for 4, about 10% slower. Replays are still
+  tracked as play. Tests: 167.
+
 ### Changed (evening): `python main.py` opens the app
 
 - **`python main.py` with no arguments opens the app**, as `python main.py

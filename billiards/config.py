@@ -356,7 +356,10 @@ class DetectorConfig:
     pocket_exclusion_ball_diameters: float = 1.45
     #: Also search where a ball on the bed can *appear*: seen at the height of
     #: its centre, a ball against the far cushion is past the bed's far edge.
-    search_raised_bed: bool = False
+    #: On since 28 Sep 2026, with the ball model to turn down what else is
+    #: there (it had split albin_fedor's 8 into its shadow): against the four
+    #: answer keys it found more balls and fewer phantoms on every one.
+    search_raised_bed: bool = True
     #: ...where a detection with more than this fraction of its disc past the
     #: bed's edge can follow a ball already being tracked, but never start a
     #: track of its own.
@@ -417,6 +420,17 @@ class DetectorConfig:
 
     #: Cap on detections per frame (guards against a pathological frame).
     max_detections: int = 40
+
+    #: The learned check on each proposal (``billiards.ballnet``): ``auto``
+    #: uses ``billiards/models/ballnet.onnx`` when it is there, ``off`` never.
+    ball_model: str = "auto"
+    #: A proposal the model gives less than this chance of being a ball is
+    #: dropped: a chalk cube, a knuckle, a pocket's shadow.
+    ball_model_reject: float = 0.3
+    #: One the size-and-shape tests turned down -- a ball welded to its
+    #: shadow, a ball whose rim runs into a cushion -- is kept if the model
+    #: is at least this sure it is a ball.
+    ball_model_rescue: float = 0.9
 
 
 @dataclass
@@ -495,6 +509,13 @@ class TrackerConfig:
     #: therefore reported this much later, at the frame the ball vanished.
     revive_window_s: float = 1.5
     revive_distance_ball_diameters: float = 3.0
+    #: A ball *lost* -- not seen for longer than it could be coasted, and not
+    #: near a pocket -- is still on the table, so it waits longer, this many
+    #: seconds, for a ball like it within this many diameters of where it was
+    #: last seen: on the 2026 US Open the green 6, its shadow welded to it,
+    #: went unseen for three seconds at a time, and came back as six balls.
+    lost_revive_window_s: float = 20.0
+    lost_revive_distance_ball_diameters: float = 1.5
 
     #: A broadcast cuts away from the table -- to a player, a replay, another
     #: camera -- and comes back to the same balls.  Until 28 Sep 2026 every
@@ -609,6 +630,12 @@ class BallsConfig:
     #: samples the neighbours too -- before it is numbered.  Its colour is an
     #: average that takes a few of those to settle.
     min_colour_samples: int = 4
+    #: With the ball model: a ball whose best available number the model
+    #: puts below exp(-model_max_cost), about 0.1, stays unnumbered; and
+    #: ``model_stickiness`` plays the part of ``stickiness``, in the same
+    #: units (minus log probability).
+    model_max_cost: float = 2.3
+    model_stickiness: float = 0.4
 
 
 @dataclass

@@ -60,7 +60,7 @@ detector:
   peak_separation_ball_radii: 1.35
   edge_margin_ball_diameters: 0.0
   pocket_exclusion_ball_diameters: 1.45
-  search_raised_bed: false
+  search_raised_bed: true
   raised_band_outside_fraction: 0.55
   split_peak_min_ratio: 0.55
   split_peak_max_ratio: 1.75
@@ -69,6 +69,9 @@ detector:
   cluster_open_rim_contrast_min: 30.0
   rim_contrast_min: 12.0
   max_detections: 40
+  ball_model: auto
+  ball_model_reject: 0.3
+  ball_model_rescue: 0.9
 tracker:
   max_speed_in_s: 700.0
   gate_padding_ball_diameters: 1.2
@@ -86,6 +89,8 @@ tracker:
   stationary_speed_in_s: 4.0
   revive_window_s: 1.5
   revive_distance_ball_diameters: 3.0
+  lost_revive_window_s: 20.0
+  lost_revive_distance_ball_diameters: 1.5
   reclaim_distance_ball_diameters: 2.0
   reclaim_colour_ratio: 0.55
   reclaim_window_s: 4.0
@@ -109,6 +114,8 @@ balls:
   max_cost: 3.0
   stickiness: 0.6
   min_colour_samples: 4
+  model_max_cost: 2.3
+  model_stickiness: 0.4
 render:
   draw_trajectories: true
   draw_ids: true

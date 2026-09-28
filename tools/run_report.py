@@ -25,6 +25,7 @@ Usage::
 
     python tools/run_report.py --note "what I changed"
     python tools/run_report.py --note "..." --ground-truth   # also score MOTA
+    python tools/run_report.py --note "..." --real           # also the real answer keys
     python tools/run_report.py --note "..." --no-render      # numbers only, faster
     python tools/run_report.py --show                        # print the log
 """
@@ -397,6 +398,10 @@ def print_log(log: Dict[str, Any]) -> None:
             if gt.get("events_found"):
                 print("      events found: " + ", ".join(
                     f"{k} {v}" for k, v in gt["events_found"].items()))
+        for name, r in (entry.get("real") or {}).items():
+            print(f"    real {name:<16} score {r['score']} / found {r['found']} / real {r['real']} / "
+                  f"named {r['named_right']} (wrong {r['named_wrong']}) / {r['ids_per_ball']} ids per ball / "
+                  f"{r['phantoms_per_keyframe']} phantoms per keyframe")
         for name, clip in entry["clips"].items():
             if "skipped" in clip:
                 print(f"    {name:<14} skipped: {clip['skipped']}")
@@ -442,6 +447,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--ground-truth",
         action="store_true",
         help="also build the synthetic clip and score accuracy (slow)",
+    )
+    ap.add_argument(
+        "--real",
+        action="store_true",
+        help="also score real footage against the answer keys in tools/truth/ "
+             "(tools/real_eval.py; needs the clips in .cache/)",
     )
     ap.add_argument(
         "--no-render",
@@ -501,6 +512,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         entry["ground_truth"] = measure_ground_truth(out_dir, render)
         print("[report] synthetic ground truth, retimed like a broadcast ...", flush=True)
         entry["ground_truth_retimed"] = measure_ground_truth(out_dir, render, retimed=True)
+
+    if args.real:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import real_eval
+
+        entry["real"] = {}
+        for truth in real_eval.all_truths():
+            print(f"[report] real footage: {truth['name']} ...", flush=True)
+            got = real_eval.measure(truth, ROOT, out_dir / "real", render=render)
+            entry["real"][truth["name"]] = {k: v for k, v in got.items() if k not in ("name", "per_keyframe")}
 
     log.setdefault("metrics", METRICS_MEANING).update(METRICS_MEANING)
     log["runs"].append(entry)

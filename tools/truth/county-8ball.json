@@ -1,0 +1,36 @@
+{
+  "name": "county-8ball",
+  "what": "Amateur 8-ball match from a fixed tripod camera at one end of a home games room (blue cloth), people walking past and in front of the lens; end of a rack, 5 balls left; the CCTV-like case",
+  "source": {"url": "https://www.youtube.com/watch?v=u15zdl7BxpA", "part": ["30:00", "31:00"], "file": ".cache/cctv/county-8ball.mp4"},
+  "settings": {"preset": "pool-9ft", "numbers": "1-15"},
+  "frame_width": 1280,
+  "match_px": 13,
+  "segments": [
+    {"from": 0, "to": 1800, "kind": "play", "rack": 1}
+  ],
+  "keyframes": [
+    {"frame": 10, "balls": [[1, 580.4, 336.8], [8, 580.5, 363.0], ["cue", 440.4, 453.8], [9, 326.3, 606.0], [2, 698.5, 582.5]]},
+    {"frame": 130, "balls": [[1, 580.4, 336.8], [8, 580.5, 363.0], ["cue", 440.4, 453.8], [9, 326.3, 606.0]]},
+    {"frame": 230, "balls": [[1, 580.4, 336.8], [8, 580.5, 363.0], ["cue", 440.4, 453.8], [9, 326.3, 606.0], [2, 698.5, 582.5]]},
+    {"frame": 350, "balls": [[1, 580.4, 336.8], [8, 580.5, 363.0], ["cue", 440.4, 453.8], [9, 326.3, 606.0], [2, 698.5, 582.5]]},
+    {"frame": 470, "balls": [["cue", 440.4, 453.8], [9, 326.3, 606.0], [2, 698.5, 582.5]]},
+    {"frame": 590, "balls": [[1, 580.4, 336.8], [8, 580.5, 363.0], ["cue", 510.8, 361.8], [2, 698.5, 582.5]]},
+    {"frame": 710, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 830, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 950, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 1070, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 1190, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 1310, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 603.2, 343.3], [2, 698.5, 582.5]]},
+    {"frame": 1430, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 758.0, 338.3], [2, 698.5, 582.5]]},
+    {"frame": 1550, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 449.8, 468.8], [2, 698.5, 582.5]]},
+    {"frame": 1680, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 595.0, 585.5], [2, 698.5, 582.5]]},
+    {"frame": 1770, "balls": [[1, 588.0, 337.0], [8, 580.5, 363.0], ["cue", 595.0, 585.5], [2, 698.5, 582.5]]}
+  ],
+  "shots": [
+    {"frame": 500, "potted": [9], "note": "Terry (red shirt) from the far end; 9 into the near-left corner, cue ball ends against the 1 on the far rail"},
+    {"frame": 1417, "potted": [], "note": "Terry; cue ball runs along the far rail and back down the left side, nothing potted; Roger then takes ball in hand"},
+    {"frame": 1780, "potted": [2], "note": "Roger (blue) with ball in hand; 2 into the near-right corner"}
+  ],
+  "marked_by": "Claude (agent), by eye on zoomed keyframes with a pixel grid; overlays checked",
+  "marked_on": "2026-09-28"
+}

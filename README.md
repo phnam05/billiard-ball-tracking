@@ -34,7 +34,8 @@ pip install -r requirements.txt
 Python 3.9+. Only NumPy and OpenCV are required; SciPy and PyYAML are optional
 (an exact pure-NumPy assignment solver and JSON config ship as fallbacks),
 `imageio-ffmpeg` lets the app write videos every browser plays, and `yt-dlp`
-lets it track a YouTube link.
+lets it track a YouTube link. The ball model (`billiards/models/ballnet.onnx`)
+runs through OpenCV; PyTorch is needed only to retrain it.
 
 ## The app
 
@@ -161,10 +162,10 @@ pixels.
 ## How it works
 
 ```
-frame ──► cloth mask ──► "on the bed but not cloth" ──► size/shape gates ──► detections
-              ▲                                              ▲
-     measured from 25 frames                    expected ball size, from the
-     sampled across the clip                    homography, at that image point
+frame ──► cloth mask ──► "on the bed but not cloth" ──► size/shape gates ──► ball model ──► detections
+              ▲                                              ▲                      ▲
+     measured from 25 frames                    expected ball size, from the   a ball? which colour?
+     sampled across the clip                    homography, at that image point  a stripe?
 
 detections ──► Hungarian assignment (distance + colour) ──► Kalman filter per ball
                                                             (table inches, with
@@ -185,6 +186,10 @@ detections ──► Hungarian assignment (distance + colour) ──► Kalman f
    **sphere**, which is not foreshortened the way a painted disc is. Touching
    balls are separated by distance-transform peaks plus radial-symmetry voting
    on the colour gradient, which is what lets a racked cluster be resolved.
+   Then a small learned model looks at each proposal and says whether it is a
+   ball, the cue ball, which colour and whether a stripe: it drops chalk,
+   knuckles and pocket shadows, keeps balls the shape tests turned down, and
+   names the balls (`billiards/ballnet.py`).
 3. **Track.** One Kalman filter per ball in table coordinates, with rolling
    friction and process noise that loosens the moment something unexpected
    happens; globally optimal assignment on position *and* colour; coasting
@@ -212,31 +217,56 @@ detections ──► Hungarian assignment (distance + colour) ──► Kalman f
    camera on a broadcast angle. The camera is recovered from the table's own
    geometry, and balls are placed through the plane at ball-centre height.
 8. **A ball that comes back is the same ball.** A ball lost in the pocket
-   jaws, or behind the player, keeps its identity if it reappears.
+   jaws, or behind the player, keeps its identity if it reappears; one lost
+   elsewhere waits 20 s. Someone walking past the lens is not a cut, and a
+   ball keeps a colour for each camera.
 
 ## Accuracy
 
 Measured against a physically simulated break with exact ground truth. It's
 filmed through a pinhole camera behind an end rail, on the sample broadcasts'
 blue-grey cloth with their ball colours, and scored on balls at least half in
-view (`reports/run-log.json`, 26 Sep 2026):
+view (`reports/run-log.json`, 28 Sep 2026, 17:07):
 
 | | Constant-rate clip | Screen-recorded broadcast style* |
 |---|---|---|
-| MOTA | **0.844** | **0.816** |
-| Precision / recall | **1.000** / 0.846 | **0.994** / 0.822 |
-| Median position error | **0.30 in** | **0.21 in** (ball radius is 1.125 in) |
-| Median speed error | **2.7%** | **4.9%** |
-| Cushion contacts found | **20 of 23**, 0 false | **15 of 21**, 0 false |
-| Collisions found† | 4 of 6, 3 false | 2 of 5, 3 false |
+| MOTA | **0.910** | **0.917** |
+| Precision / recall | **0.999** / 0.913 | **0.993** / 0.928 |
+| ID switches | 3 | 10 |
+| Median position error | **0.31 in** | **0.23 in** (ball radius is 1.125 in) |
+| Median speed error | **2.9%** | **5.5%** |
+| Cushion contacts found | **22 of 23**, 1 false | **19 of 21**, 1 false |
+| Collisions found† | 5 of 6, 2 false | 3 of 5, 5 false |
 
 \* 25 fps content captured at 37.5 fps, frames arriving late and one in eight
 missed. † Excluding contacts inside a static rack, which no camera can see.
 
 Most of the misses are one ball: the blue stripe, whose colour the blue-grey
-cloth mask partly takes for cloth. On green cloth the break scores 0.87 against
-0.81 on blue-grey (below). Before 23 Sep the simulator used generic ball
-colours on green, and this table read 0.92.
+cloth mask partly takes for cloth. Until 28 Sep evening, before the ball model,
+this table read 0.844 and 0.816; the model keeps balls in clumps that the
+shape tests turned down, and a few of those trade identity.
+
+### Real footage, against answer keys
+
+Four real clips have answer keys, marked by hand on keyframes (`tools/truth/`):
+where every ball is, which one it is, and what each stretch of the clip shows.
+`tools/real_eval.py` scores a run against them; the score is `1 - (missed +
+phantoms + extra ids) / balls`, like MOTA.
+
+| Clip | Score | Balls found | Drawn balls that are balls | Named right / wrong | Ids per ball |
+|---|---|---|---|---|---|
+| 2026 US Open, 3 min of highlights | **0.94** | 98% | 98% | 84% / 1% | 1.35 |
+| 2026 Premier League final, 1 min, four cameras | **0.79** | 88% | 96% | 91% / 0% | 1.9 |
+| Ceiling camera over a club table | **1.00** | 100% | 100% | 88% / 12% | 1.0 |
+| Tripod at the end of a room, amateur 8-ball | **0.74** | 82% | 95% | 50% / 18% | 1.4 |
+
+The same keys, earlier versions: the US Open 0 (nothing tracked) on the
+morning of 28 Sep, 0.35 after the other-venues work, 0.83 after the cut
+handling; the others 0.71 / 0.68 / 0.49 after the cut handling.
+
+```bash
+python tools/real_eval.py                 # needs the clips in .cache/
+```
 
 ### Other footage
 
@@ -247,16 +277,16 @@ ground truth (4 s of play each, so a little lower than the table above):
 
 | Footage | MOTA |
 |---|---|
-| Blue-grey cloth, end camera, 720p, 30 fps (the sample clips' conditions) | 0.81 |
-| Green / tournament-blue / burgundy / camel cloth | 0.87 / 0.87 / 0.86 / 0.74 |
-| Grey cloth | 0.79 |
-| The sample clips' cloth on a royal-blue floor (the 2026 US Open) / green cloth on a red floor | 0.81 / 0.86 |
-| Camera across from a long rail / on the ceiling | 0.72 / 0.88 |
-| Tripod at a corner, table small in the picture | 0.57 |
-| 854×480 / 1920×1080 | 0.77 / 0.79 |
-| Filmed at 60 fps / screen-recorded broadcast | 0.80 / 0.80 |
-| The broadcasts' ball set | 0.82 |
-| Edited like a broadcast: cut away mid-shot, back on a camera across the table, cut again, back (8 s) | 0.78 |
+| Blue-grey cloth, end camera, 720p, 30 fps (the sample clips' conditions) | 0.88 |
+| Green / tournament-blue / burgundy / camel cloth | 0.89 / 0.91 / 0.90 / 0.78 |
+| Grey cloth | 0.89 |
+| The sample clips' cloth on a royal-blue floor (the 2026 US Open) / green cloth on a red floor | 0.88 / 0.89 |
+| Camera across from a long rail / on the ceiling | 0.81 / 0.92 |
+| Tripod at a corner, table small in the picture | 0.58 |
+| 854×480 / 1920×1080 | 0.84 / 0.84 |
+| Filmed at 60 fps / screen-recorded broadcast | 0.88 / 0.87 |
+| The broadcasts' ball set | 0.86 |
+| Edited like a broadcast: cut away mid-shot, back on a camera across the table, cut again, back (8 s) | 0.84 |
 
 ```bash
 python tools/robustness.py    # writes reports/robustness.json and results/robustness.png
@@ -279,7 +309,7 @@ python tools/venues.py        # downloads the minutes once, into .cache/venues/
 Per-variant recall, position and speed error, ball numbers and events are in
 [`UPGRADE_NOTES.md` §12.4](UPGRADE_NOTES.md#124-footage-unlike-the-sample-clips--toolsrobustnesspy).
 
-Speed on the 1080p sample clips, processed at 1280 px wide: 26-27 fps writing the annotated video, 60-80 fps without it.
+Speed, measured on 28 Sep evening on the work laptop: the 1080p sample clips, processed at 1280 px wide, 19-23 fps writing the annotated video and 29-40 fps without it; the 720p Premier League minute 65 fps. The ball model costs 2-9% of that. (On 26 Sep the same clips measured 26-27 and 60-80 fps; tonight, with the model switched off, they ran at 31 and 40 fps without the video, so that difference is the laptop, not the model.)
 
 Reproduce it:
 
@@ -305,7 +335,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 131
+pytest -q                  # all 167
 pytest -q -m "not slow"    # unit tests only
 ```
 
@@ -332,18 +362,17 @@ whether it looks right. `--no-render` skips that when you only want numbers.
 - **A static rack** resolves to roughly 6 of 8 balls: adjacent balls of
   similar colour share no visible edge, and from an end rail they hide each
   other.
-- **A ball against the far cushion** appears past the edge of the region
-  searched, so it isn't seen there, although its bounce is still found from
-  the path either side. A pot into a far corner can be missed the same way
-  (`albin_fedor`'s 5). The app's *Look for balls against the far cushion*
-  (`detector.search_raised_bed`) finds them, but can also take a black ball's
-  shadow or a hand on the rail for a ball, so it is off by default.
+- **Replays are tracked as if they were play** (the US Open's overhead
+  replay), and a highlights reel's jumps in time are not recognised: balls
+  that moved while the camera was away come back under new ids.
+- **Ball numbers depend on the colours the ball model has seen.** It reads
+  the US Open's light-blue 2 as green, and leaves it unnamed; a set whose
+  colours differ from both it knows (a ceiling camera's club set, with an
+  orange 7) gets a ball named wrongly. Small, far balls from a tripod are
+  named half the time.
 - **Broadcasts and other venues** (`tools/venues.py`, below): the table is
   found at all 11 venues tried, and a ball keeps its id across a camera cut
-  (see `UPGRADE_NOTES.md` §15). A broadcast minute still lists 3–4 times more
-  balls than the table has: hands on the rail, shadows, and balls that moved
-  too far while the camera was away. Replays are tracked as if they were
-  play.
+  (see `UPGRADE_NOTES.md` §15-16): 1.35-1.9 ids per ball on the answer keys.
 - **A camera at a corner of the table**, with the table small in the picture,
   tracks worst of the views tried (MOTA 0.57; see *Other footage* above).
 - **A faint cushion-nose line**, at low resolution or from a skewed view, can

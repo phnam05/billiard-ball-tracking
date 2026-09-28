@@ -42,6 +42,7 @@ packages = ["billiards", "billiards.app"]
 
 [tool.setuptools.package-data]
 "billiards.app" = ["static/*"]
+"billiards" = ["models/*.onnx", "models/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

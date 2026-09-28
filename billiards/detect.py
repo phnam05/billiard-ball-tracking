@@ -21,6 +21,7 @@ from typing import List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from . import ballnet
 from .config import Config
 from .geometry import TableModel
 from .table import ClothModel
@@ -463,6 +464,13 @@ class Detection:
     #: Seen partly past the bed's far edge, where only a ball already being
     #: followed is looked for -- see ``DetectorConfig.search_raised_bed``.
     in_raised_band: bool = False
+    #: What the ball model (``billiards.ballnet``) makes of it, when it ran:
+    #: the chance it is a ball, that it is the cue ball, of each colour
+    #: family, and that it is a stripe.
+    ball_p: float = 1.0
+    cue_p: Optional[float] = None
+    family_p: Optional[np.ndarray] = None
+    stripe_p: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -501,6 +509,10 @@ class BallDetector:
         self._surround: Optional[np.ndarray] = None
         self._surround_shape: Optional[Tuple[int, int]] = None
         self.last_debug: dict = {}
+        #: The learned check on each proposal, if there is one.
+        self.ballnet = ballnet.load() if cfg.detector.ball_model != "off" else None
+        #: Centres the cluster splitter found and then judged not to be balls.
+        self._split_rejected: List[Tuple[float, float]] = []
 
     # -- masks -------------------------------------------------------------
 
@@ -666,6 +678,8 @@ class BallDetector:
         num, labels, stats, centroids = cv2.connectedComponentsWithStats(fg, 8)
         detections: List[Detection] = []
         rejected = {"area": 0, "shape": 0, "outside": 0, "rim": 0, "not_balls": 0}
+        #: Turned down by the tests below; the ball model may overrule them.
+        second_look: List[tuple] = []
 
         for i in range(1, num):
             x, y, w, h, area = stats[i]
@@ -690,6 +704,11 @@ class BallDetector:
                 )
                 if not centres:
                     rejected["not_balls"] += 1
+                    kept = self._split_rejected
+                    self._split_rejected = []
+                    for c in kept:
+                        second_look.append((c, r_expected, ratio, 1.0, True,
+                                            [o for o in kept if o is not c], len(kept) <= _CLEAN_CLUSTER_SIZE))
                 for c in centres:
                     others = [o for o in centres if o is not c]
                     det = self._make_detection(
@@ -699,6 +718,8 @@ class BallDetector:
                     )
                     if det is None:
                         rejected["rim"] += 1
+                        second_look.append((c, r_expected, ratio, 1.0, True, others,
+                                            len(centres) <= _CLEAN_CLUSTER_SIZE))
                     else:
                         detections.append(det)
                 continue
@@ -706,6 +727,9 @@ class BallDetector:
             shape_ok, circularity = self._check_shape(component)
             if not shape_ok:
                 rejected["shape"] += 1
+                if ratio <= self.cfg.detector.split_area_ratio:
+                    second_look.append((self._refine_centre(component, offset=(x, y)), r_expected,
+                                        ratio, circularity, False, None, True))
                 continue
 
             centre = self._refine_centre(component, offset=(x, y))
@@ -718,8 +742,12 @@ class BallDetector:
             )
             if det is None:
                 rejected["rim"] += 1
+                second_look.append((centre, r_expected, ratio, circularity, False, None, True))
                 continue
             detections.append(det)
+
+        if self.ballnet is not None:
+            detections = self._ask_model(frame, lab, detections, second_look, rejected)
 
         if self._plain_bed is not None:
             for det in detections:
@@ -749,6 +777,61 @@ class BallDetector:
             "accepted": len(detections),
         }
         return detections
+
+    # -- the ball model ----------------------------------------------------
+
+    def _ask_model(
+        self,
+        frame: np.ndarray,
+        lab: np.ndarray,
+        detections: List[Detection],
+        second_look: Sequence[tuple],
+        rejected: dict,
+    ) -> List[Detection]:
+        """Keep what the ball model agrees is a ball, and what it is sure is one.
+
+        Every proposal the tests above accepted is shown to the model, and
+        dropped if it is unlikely to be a ball: on the answer keys of 28 Sep
+        2026 the tests passed a chalk cube on the rail, knuckles and pocket
+        shadows as balls.  The proposals the tests turned down are shown too,
+        and kept only if the model is sure: the green 6 on the 2026 US Open
+        cast a shadow that made its blob too big for one ball, and was lost
+        for seconds at a time.
+        """
+        cfg = self.cfg.detector
+        extra: List[Detection] = []
+        for centre, r_expected, ratio, circ, from_cluster, others, colour_ok in second_look:
+            det = self._make_detection(centre, r_expected, ratio, circ, lab, from_cluster,
+                                       neighbours=others, colour_ok=colour_ok, check_rim=False)
+            if det is not None and all(
+                (det.centre_image[0] - d.centre_image[0]) ** 2 + (det.centre_image[1] - d.centre_image[1]) ** 2
+                >= (1.2 * d.radius_px) ** 2 for d in detections
+            ):
+                extra.append(det)
+        every = detections + extra
+        if not every:
+            return detections
+        kind, family, stripe = self.ballnet.score(
+            frame, [d.centre_image for d in every], [d.radius_px for d in every]
+        )
+        kept: List[Detection] = []
+        dropped = rescued = 0
+        for i, det in enumerate(every):
+            det.ball_p = float(1.0 - kind[i, 0])
+            det.cue_p = float(kind[i, 1])
+            det.family_p = family[i]
+            det.stripe_p = float(stripe[i])
+            if i < len(detections):
+                if det.ball_p >= cfg.ball_model_reject:
+                    kept.append(det)
+                else:
+                    dropped += 1
+            elif det.ball_p >= cfg.ball_model_rescue:
+                kept.append(det)
+                rescued += 1
+        rejected["model"] = dropped
+        rejected["rescued"] = rescued
+        return kept
 
     # -- helpers -----------------------------------------------------------
 
@@ -782,6 +865,7 @@ class BallDetector:
         from_cluster: bool,
         neighbours: Optional[Sequence[Tuple[float, float]]] = None,
         colour_ok: bool = True,
+        check_rim: bool = True,
     ) -> Optional[Detection]:
         table_xy = self._table_point(centre)
         if table_xy is None:
@@ -794,7 +878,7 @@ class BallDetector:
         # Everything above this line is happy with any ball-sized round thing;
         # this is the test a knuckle fails.
         rim = rim_contrast(lab, centre, r, sig)
-        if rim < self.cfg.detector.rim_contrast_min:
+        if check_rim and rim < self.cfg.detector.rim_contrast_min:
             return None
 
         return Detection(
@@ -952,6 +1036,7 @@ class BallDetector:
         kept = kept[:max_balls]
 
         if not self._is_made_of_balls(kept, dist, pad, r_expected, offset, colour, in_open):
+            self._split_rejected = kept
             return []
         return kept
 

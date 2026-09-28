@@ -53,9 +53,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "burn_in_panel": False,
     "draw_trails": True,
     #: Also look for balls against the far cushion (``detector.search_raised_bed``).
-    #: Off by default: it finds more, and on albin_fedor it finds a pot the
-    #: default misses, but it also made a phantom next to a black ball there.
-    "far_cushion": False,
+    #: On by default since 28 Sep 2026: it used to make a phantom next to a
+    #: black ball on albin_fedor, which the ball model now turns down.
+    "far_cushion": True,
 }
 
 
@@ -115,7 +115,7 @@ def build_config(settings: Dict[str, Any], base: Optional[Config] = None) -> Con
     cfg.render.overhead_panel = bool(settings["burn_in_panel"])
     cfg.render.draw_hud = bool(settings["burn_in_panel"])
     cfg.render.draw_trajectories = bool(settings["draw_trails"])
-    cfg.detector.search_raised_bed = bool(settings.get("far_cushion", False))
+    cfg.detector.search_raised_bed = bool(settings.get("far_cushion", True))
     return cfg
 
 

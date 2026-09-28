@@ -32,6 +32,10 @@ from .geometry import TableModel, quad_from_contour
 # --------------------------------------------------------------------------
 
 
+#: A cloth measured at less saturation than this has no hue worth testing.
+_NEUTRAL_SAT = 12.0
+
+
 @dataclass
 class ClothModel:
     """A measured cloth colour with circular hue support."""
@@ -76,9 +80,14 @@ class ClothModel:
         h, s, v = cv2.split(hsv)
         s_lo = max(0, int(self.sat - self.sat_halfwidth))
         s_hi = min(255, int(self.sat + self.sat_halfwidth))
-        if self.neutral:
+        if self.neutral or self.sat < _NEUTRAL_SAT:
             # Hue is noise on a colourless cloth; being unsaturated and about
-            # this bright is what makes it cloth.
+            # this bright is what makes it cloth.  That goes for a cloth
+            # measured as the commonest colour too, when that colour has no
+            # colour: a ceiling camera's grey cloth (28 Sep 2026) came out as
+            # hue 0 saturation 0, and its edges, tinted blue by the lens, fell
+            # outside a hue window of 0 +/- 6, so the table was fitted 3 in
+            # short of both end cushions and a ball against one was never seen.
             v_lo = max(0, int(self.value_low))
             v_hi = min(255, int(self.val + self.val_halfwidth))
             s_ok = cv2.inRange(s, np.array(0, np.uint8), np.array(s_hi, np.uint8))
@@ -430,6 +439,11 @@ _NOSE_LAB_WEIGHTS = np.array([0.45, 1.0, 1.0])
 _NOSE_STEP_IN = 0.1
 #: A rail on which fewer rays than this found an edge is left where it is.
 _NOSE_MIN_AGREEING = 0.4
+#: ...and so is one whose rays disagree by more than this, interquartile, in
+#: inches: 0.01-1.67 on the sample clips, the 2026 US Open and Premier League
+#: and a CCTV-style tripod camera; 3.84 on a ceiling camera's rail, where the
+#: rays found lines drawn on the cloth and the lens's vignetting.
+_NOSE_MAX_SPREAD_IN = 2.5
 
 
 def refine_to_cushion_noses(
@@ -555,6 +569,13 @@ def refine_to_cushion_noses(
             d = float(np.dot(nose - rail0, inward))
         d = float(np.clip(d, 0.0, depth_max))
         spread = float(np.percentile(hits, 75) - np.percentile(hits, 25))
+        if spread > _NOSE_MAX_SPREAD_IN:
+            # The rays do not agree where the nose is -- they are finding a
+            # line drawn on the cloth, or the vignetting of a lens, as often
+            # as the nose -- so the rail is left where the outline put it.
+            report[name] = {"inches": 0.0, "rays": len(hits), "of": len(us),
+                            "spread_in": round(spread, 2), "moved": False}
+            continue
         offsets[name] = d
         report[name] = {"inches": round(d, 2), "rays": len(hits), "of": len(us),
                         "spread_in": round(spread, 2), "moved": d > 0.0}

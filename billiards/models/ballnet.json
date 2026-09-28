@@ -1,0 +1,329 @@
+{
+ "input": 32,
+ "crop_radii": 3.0,
+ "kinds": [
+  "no",
+  "cue",
+  "ball"
+ ],
+ "families": [
+  "yellow",
+  "blue",
+  "red",
+  "pink",
+  "purple",
+  "orange",
+  "green",
+  "maroon",
+  "black"
+ ],
+ "normalise": "(BGR - 127.5) / 255",
+ "trained": "2026-09-28T16:32:36+07:00",
+ "examples": {
+  "synthetic": 24663,
+  "real": 13698,
+  "real_labels": {
+   "black": 932,
+   "cue": 1899,
+   "purple": 508,
+   "green": 703,
+   "yellow-stripe": 644,
+   "maroon": 1179,
+   "no": 3686,
+   "orange": 296,
+   "ball": 1711,
+   "green-stripe": 374,
+   "maroon-stripe": 154,
+   "blue": 653,
+   "yellow": 843,
+   "purple-stripe": 72,
+   "red": 2007,
+   "red-stripe": 259,
+   "orange-stripe": 229,
+   "blue-stripe": 256,
+   "pink": 448
+  }
+ },
+ "held_out": "one real track in 5, every clip",
+ "validation": {
+  "balls_kept": 0.9854,
+  "non_balls_rejected": 0.8912,
+  "cue_right": 0.9504,
+  "family_right": 0.9528,
+  "stripe_right": 0.9637
+ },
+ "history": [
+  {
+   "epoch": 1,
+   "loss": 2.8321,
+   "balls_kept": 0.3103,
+   "non_balls_rejected": 0.8891,
+   "cue_right": 0.4561,
+   "family_right": 0.1324,
+   "stripe_right": 0.2103
+  },
+  {
+   "epoch": 2,
+   "loss": 1.7979,
+   "balls_kept": 0.1004,
+   "non_balls_rejected": 0.9959,
+   "cue_right": 0.0,
+   "family_right": 0.3588,
+   "stripe_right": 0.3032
+  },
+  {
+   "epoch": 3,
+   "loss": 1.1669,
+   "balls_kept": 0.8291,
+   "non_balls_rejected": 0.6653,
+   "cue_right": 0.9981,
+   "family_right": 0.2923,
+   "stripe_right": 0.135
+  },
+  {
+   "epoch": 4,
+   "loss": 0.8439,
+   "balls_kept": 0.8298,
+   "non_balls_rejected": 0.7125,
+   "cue_right": 0.9981,
+   "family_right": 0.364,
+   "stripe_right": 0.135
+  },
+  {
+   "epoch": 5,
+   "loss": 0.6613,
+   "balls_kept": 0.7324,
+   "non_balls_rejected": 0.8357,
+   "cue_right": 0.9905,
+   "family_right": 0.3557,
+   "stripe_right": 0.1386
+  },
+  {
+   "epoch": 6,
+   "loss": 0.5536,
+   "balls_kept": 0.7481,
+   "non_balls_rejected": 0.809,
+   "cue_right": 0.9981,
+   "family_right": 0.6168,
+   "stripe_right": 0.4294
+  },
+  {
+   "epoch": 7,
+   "loss": 0.4575,
+   "balls_kept": 0.7639,
+   "non_balls_rejected": 0.9179,
+   "cue_right": 0.9847,
+   "family_right": 0.3712,
+   "stripe_right": 0.6848
+  },
+  {
+   "epoch": 8,
+   "loss": 0.3942,
+   "balls_kept": 0.9333,
+   "non_balls_rejected": 0.2361,
+   "cue_right": 1.0,
+   "family_right": 0.6096,
+   "stripe_right": 0.8136
+  },
+  {
+   "epoch": 9,
+   "loss": 0.3578,
+   "balls_kept": 0.7946,
+   "non_balls_rejected": 0.9363,
+   "cue_right": 0.9599,
+   "family_right": 0.5981,
+   "stripe_right": 0.8624
+  },
+  {
+   "epoch": 10,
+   "loss": 0.3069,
+   "balls_kept": 0.9933,
+   "non_balls_rejected": 0.3039,
+   "cue_right": 0.9962,
+   "family_right": 0.7129,
+   "stripe_right": 0.8396
+  },
+  {
+   "epoch": 11,
+   "loss": 0.2875,
+   "balls_kept": 0.9873,
+   "non_balls_rejected": 0.7618,
+   "cue_right": 0.9962,
+   "family_right": 0.6796,
+   "stripe_right": 0.8842
+  },
+  {
+   "epoch": 12,
+   "loss": 0.2637,
+   "balls_kept": 0.9708,
+   "non_balls_rejected": 0.8049,
+   "cue_right": 0.9962,
+   "family_right": 0.8795,
+   "stripe_right": 0.8956
+  },
+  {
+   "epoch": 13,
+   "loss": 0.2321,
+   "balls_kept": 0.9876,
+   "non_balls_rejected": 0.7556,
+   "cue_right": 0.9313,
+   "family_right": 0.892,
+   "stripe_right": 0.8962
+  },
+  {
+   "epoch": 14,
+   "loss": 0.2325,
+   "balls_kept": 0.9501,
+   "non_balls_rejected": 0.8049,
+   "cue_right": 0.9943,
+   "family_right": 0.8967,
+   "stripe_right": 0.9237
+  },
+  {
+   "epoch": 15,
+   "loss": 0.2022,
+   "balls_kept": 0.9269,
+   "non_balls_rejected": 0.9815,
+   "cue_right": 0.9943,
+   "family_right": 0.9091,
+   "stripe_right": 0.9003
+  },
+  {
+   "epoch": 16,
+   "loss": 0.1948,
+   "balls_kept": 0.9419,
+   "non_balls_rejected": 0.9425,
+   "cue_right": 0.9237,
+   "family_right": 0.8712,
+   "stripe_right": 0.9476
+  },
+  {
+   "epoch": 17,
+   "loss": 0.1768,
+   "balls_kept": 0.9955,
+   "non_balls_rejected": 0.6817,
+   "cue_right": 0.937,
+   "family_right": 0.9356,
+   "stripe_right": 0.9341
+  },
+  {
+   "epoch": 18,
+   "loss": 0.1622,
+   "balls_kept": 0.9831,
+   "non_balls_rejected": 0.9692,
+   "cue_right": 0.979,
+   "family_right": 0.9507,
+   "stripe_right": 0.9195
+  },
+  {
+   "epoch": 19,
+   "loss": 0.1569,
+   "balls_kept": 0.988,
+   "non_balls_rejected": 0.8542,
+   "cue_right": 0.9752,
+   "family_right": 0.9346,
+   "stripe_right": 0.9086
+  },
+  {
+   "epoch": 20,
+   "loss": 0.1442,
+   "balls_kept": 0.9816,
+   "non_balls_rejected": 0.9384,
+   "cue_right": 0.9466,
+   "family_right": 0.9496,
+   "stripe_right": 0.933
+  },
+  {
+   "epoch": 21,
+   "loss": 0.1344,
+   "balls_kept": 0.9843,
+   "non_balls_rejected": 0.8563,
+   "cue_right": 0.9924,
+   "family_right": 0.9507,
+   "stripe_right": 0.9574
+  },
+  {
+   "epoch": 22,
+   "loss": 0.1294,
+   "balls_kept": 0.9839,
+   "non_balls_rejected": 0.9138,
+   "cue_right": 0.9866,
+   "family_right": 0.933,
+   "stripe_right": 0.9387
+  },
+  {
+   "epoch": 23,
+   "loss": 0.1149,
+   "balls_kept": 0.982,
+   "non_balls_rejected": 0.8789,
+   "cue_right": 0.9275,
+   "family_right": 0.933,
+   "stripe_right": 0.9465
+  },
+  {
+   "epoch": 24,
+   "loss": 0.1129,
+   "balls_kept": 0.9884,
+   "non_balls_rejected": 0.8665,
+   "cue_right": 0.9408,
+   "family_right": 0.9481,
+   "stripe_right": 0.9626
+  },
+  {
+   "epoch": 25,
+   "loss": 0.1064,
+   "balls_kept": 0.9831,
+   "non_balls_rejected": 0.8768,
+   "cue_right": 0.9618,
+   "family_right": 0.9361,
+   "stripe_right": 0.9694
+  },
+  {
+   "epoch": 26,
+   "loss": 0.093,
+   "balls_kept": 0.9873,
+   "non_balls_rejected": 0.885,
+   "cue_right": 0.9389,
+   "family_right": 0.9564,
+   "stripe_right": 0.9611
+  },
+  {
+   "epoch": 27,
+   "loss": 0.0928,
+   "balls_kept": 0.9876,
+   "non_balls_rejected": 0.8665,
+   "cue_right": 0.9466,
+   "family_right": 0.9533,
+   "stripe_right": 0.9496
+  },
+  {
+   "epoch": 28,
+   "loss": 0.089,
+   "balls_kept": 0.985,
+   "non_balls_rejected": 0.8891,
+   "cue_right": 0.9351,
+   "family_right": 0.9517,
+   "stripe_right": 0.9642
+  },
+  {
+   "epoch": 29,
+   "loss": 0.0912,
+   "balls_kept": 0.9861,
+   "non_balls_rejected": 0.8871,
+   "cue_right": 0.9542,
+   "family_right": 0.9528,
+   "stripe_right": 0.9637
+  },
+  {
+   "epoch": 30,
+   "loss": 0.0858,
+   "balls_kept": 0.9854,
+   "non_balls_rejected": 0.8912,
+   "cue_right": 0.9504,
+   "family_right": 0.9528,
+   "stripe_right": 0.9637
+  }
+ ],
+ "parameters": 73149,
+ "opencv_matches_pytorch_to": 3.814697265625e-06
+}

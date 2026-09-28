@@ -2163,6 +2163,287 @@
           "skipped_source_frames": 12
         }
       }
+    },
+    {
+      "id": "2026-09-28T17:07:06+07:00",
+      "commit": "49446ee",
+      "dirty": true,
+      "note": "28 Sep evening: answer keys for 4 real clips (tools/truth, tools/real_eval.py); ball model (billiards/ballnet.py, v3) checks proposals and names colours; someone in front of the lens is not a cut; colour per camera; lost balls wait 20 s; colourless cloth ignores hue; far cushion searched by default",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 1,
+          "frames": 751,
+          "frames_repeated": 412,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 30.0,
+            "moving_repeats": 26,
+            "evidence_frames": 29,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 2,
+            "cushion": 5,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 1 cushion -- nothing potted -- 2.0s",
+            "shot 2: CUE struck -- hit the 5 first -- 2 cushions -- potted the 5 -- 5.4s"
+          ],
+          "processing_fps": 23.22,
+          "tracks_reported": 6,
+          "short_tracks": [],
+          "peak_speed_in_s": 423.9,
+          "speed_jitter_in_s": {
+            "mean": 11.11,
+            "max": 277.3,
+            "samples": 155
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 2.63,
+            "samples": 3739
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 22.259,
+            "moving_repeats": 29,
+            "evidence_frames": 28,
+            "skipped_source_frames": 2
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 11,
+          "events": {
+            "cushion": 4,
+            "collision": 3,
+            "ball_struck": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 3 cushions -- 2 contacts -- nothing potted -- 6.1s"
+          ],
+          "processing_fps": 19.8,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.7,
+          "speed_jitter_in_s": {
+            "mean": 3.9,
+            "max": 88.6,
+            "samples": 284
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.427,
+            "samples": 2663
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.583,
+            "moving_repeats": 59,
+            "evidence_frames": 37,
+            "skipped_source_frames": 36
+          },
+          "frames_view_lost": 23,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 10.2s"
+          ],
+          "processing_fps": 19.44,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.4,
+          "speed_jitter_in_s": {
+            "mean": 3.04,
+            "max": 35.8,
+            "samples": 238
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.356,
+            "samples": 3401
+          }
+        }
+      },
+      "open_issues": [
+        "replays are still tracked as play (US Open overhead replay 42% of frames)",
+        "the US Open's light-blue 2 is read as green by the ball model"
+      ],
+      "ground_truth": {
+        "recall": 0.9129,
+        "precision": 0.9993,
+        "mota": 0.9102,
+        "id_switches": 3,
+        "position_error_in_median": 0.312,
+        "speed_error_median_relative": 0.0288,
+        "speed_error_p95_in_s": 11.97,
+        "events_found": {
+          "collision": "5/6 (+2 false)",
+          "cushion": "22/23 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.9284,
+        "precision": 0.9931,
+        "mota": 0.9167,
+        "id_switches": 10,
+        "position_error_in_median": 0.227,
+        "speed_error_median_relative": 0.0547,
+        "speed_error_p95_in_s": 20.41,
+        "events_found": {
+          "collision": "3/5 (+5 false)",
+          "cushion": "19/21 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 82,
+          "evidence_frames": 98,
+          "skipped_source_frames": 13
+        }
+      },
+      "real": {
+        "county-8ball": {
+          "keyframes": 16,
+          "balls": 66,
+          "score": 0.742,
+          "found": 0.818,
+          "real": 0.947,
+          "named_right": 0.5,
+          "named_wrong": 0.185,
+          "ids_per_ball": 1.4,
+          "swaps": 1,
+          "phantoms_per_keyframe": 0.19,
+          "paused": 0.023,
+          "off_play": {},
+          "track_ids": 9,
+          "tracks_created": 21,
+          "shots": 2,
+          "processing_fps": 44.33,
+          "shots_marked": 3
+        },
+        "demo-table-cam": {
+          "keyframes": 12,
+          "balls": 96,
+          "score": 1.0,
+          "found": 1.0,
+          "real": 1.0,
+          "named_right": 0.875,
+          "named_wrong": 0.115,
+          "ids_per_ball": 1.0,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.0,
+          "paused": 0.005,
+          "off_play": {},
+          "track_ids": 10,
+          "tracks_created": 15,
+          "shots": 5,
+          "processing_fps": 24.25,
+          "shots_marked": 2
+        },
+        "premier-league": {
+          "keyframes": 22,
+          "balls": 187,
+          "score": 0.791,
+          "found": 0.877,
+          "real": 0.959,
+          "named_right": 0.909,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.9,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.32,
+          "paused": 0.089,
+          "off_play": {
+            "graphic": 0.995
+          },
+          "track_ids": 35,
+          "tracks_created": 46,
+          "shots": 4,
+          "processing_fps": 30.17,
+          "shots_marked": 7
+        },
+        "us-open-3min": {
+          "keyframes": 39,
+          "balls": 273,
+          "score": 0.941,
+          "found": 0.985,
+          "real": 0.978,
+          "named_right": 0.844,
+          "named_wrong": 0.007,
+          "ids_per_ball": 1.35,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.15,
+          "paused": 0.013,
+          "off_play": {
+            "closeup": 0.092,
+            "crowd": 0.0,
+            "graphic": 0.008,
+            "replay": 0.423
+          },
+          "track_ids": 50,
+          "tracks_created": 90,
+          "shots": 6,
+          "processing_fps": 37.36
+        }
+      }
     }
   ],
   "clips": {

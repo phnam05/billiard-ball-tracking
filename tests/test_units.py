@@ -664,10 +664,13 @@ def test_a_ball_that_stays_gone_is_retired_after_the_window():
         tracker.update([_detection_at((50.0, 25.0), cfg)], 1 / 30, i, i / 30.0)
     ball = tracker.tracks[0]
     frame = 60
-    while ball in tracker.tracks or ball in tracker.limbo:
+    # A ball lost away from the pockets waits in limbo, then longer still
+    # (``TrackerConfig.lost_revive_window_s``) for a ball like it where it was.
+    windows = cfg.tracker.revive_window_s + cfg.tracker.lost_revive_window_s
+    while ball in tracker.tracks or ball in tracker.limbo or ball in tracker.gone:
         tracker.update([], 1 / 30, frame, frame / 30.0)
         frame += 1
-        assert frame < 60 + 45 + int(cfg.tracker.revive_window_s * 30) + 5
+        assert frame < 60 + 45 + int(windows * 30) + 5
     assert ball in tracker.finished
 
 

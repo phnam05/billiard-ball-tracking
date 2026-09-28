@@ -1,4 +1,4 @@
-# 📓 Development Diary: Billiard Ball Tracking
+  # 📓 Development Diary: Billiard Ball Tracking
 
 What state the project was in on each day, one table row per step. The
 reasoning and measurements are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md), the
@@ -14,30 +14,35 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 | Area | Status | Notes |
 |---|:---:|---|
-| The app | ✅ | `python main.py app`: says what to do next, one button per video; library, set-up, results, live |
+| The app | ✅ | `python main.py` (or PyCharm's Run): says what to do next, one button per video; library, set-up, results, live; all checked 28 Sep |
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
 | YouTube links | ✅ | Paste a link, pick the minutes, see how long first; tried on one YouTube final |
 | Finding the table | ✅ | 11 real venues, 7 cloths, 3 floors, 4 cameras; grey cloth found by itself |
-| Broadcast cuts | ⚠️ | Balls keep their ids across cuts and cameras; still 3–4× too many ids on real minutes (Mosconi 44, Premier League 33 for ≤10) |
-| Finding the balls | ⚠️ | Balls against the far cushion unseen (an app option finds them, plus a phantom) |
-| Ball numbers 1–15 | ✅ | 72–97% right on synthetic; right in all 3 real shot logs |
-| Cushion contacts | ✅ | 20 of 23 on synthetic, none false; real clips as in the video |
-| Pots | ⚠️ | `fedor_shot`'s 2 found; `albin_fedor`'s 5 missed (far-left corner) |
-| Collisions | ⚠️ | 4 of 6 on synthetic, 3 false |
-| Ball speeds | ✅ | 2.7% median error (4.9% screen-recorded) |
-| Tests | ✅ | 152 pass; none yet for today's cut handling |
-| On GitHub | ⚠️ | 28 Sep morning pushed (`1387635`); venue fixes (`cfb3b8b`) and cut handling committed, not pushed |
+| Real footage | ✅ | Answer keys for 4 real clips: US Open 0.94, Premier League 0.79, 2 CCTV-style 1.00 / 0.74 (score like MOTA) |
+| Broadcast cuts | ⚠️ | Ids kept across cuts: 1.35–1.9 ids per ball on the keys; replays still tracked as play |
+| Finding the balls | ✅ | Learned ball check drops chalk, hands, shadows; far cushion searched by default; 82–100% found on the keys |
+| Ball numbers 1–15 | ⚠️ | 84–91% right on broadcasts, 50–88% on CCTV-style; the US Open's light-blue 2 unnamed |
+| Cushion contacts | ✅ | 22 of 23 on synthetic, 1 false; `fedor_jump` 3 of 4 |
+| Pots | ⚠️ | `albin_fedor`'s 5 now found; broadcasts: false pots round dissolves |
+| Collisions | ⚠️ | 5 of 6 on synthetic, 2 false |
+| Ball speeds | ✅ | 2.9% median error (5.5% screen-recorded) |
+| Tests | ✅ | 167 pass |
+| On GitHub | ✅ | Everything pushed on 28 Sep evening, the answer keys and the ball model included |
 
-**Key numbers**: synthetic break (`reports/run-log.json`, 28 Sep 12:53, as on 26 Sep)
+**Key numbers** (`reports/run-log.json`, 28 Sep 17:07)
 
 | | Constant-rate | Screen-recorded style |
 |---|---|---|
-| MOTA | 0.844 | 0.816 |
-| Precision / recall | 1.000 / 0.846 | 0.994 / 0.822 |
-| Speed error | 2.7% | 4.9% |
+| Synthetic MOTA | 0.910 (0.844 at noon) | 0.917 (0.816) |
+| Precision / recall | 0.999 / 0.913 | 0.993 / 0.928 |
+| Speed error | 2.9% | 5.5% |
 
-⚠️ Lower than 23 Sep's 0.92 because the benchmark got harder on 23 Sep evening
-(real ball colours on the broadcasts' cloth), not because tracking got worse.
+| Answer key | Score | Found | Named right / wrong |
+|---|---|---|---|
+| US Open 3 min | 0.94 | 98% | 84% / 1% |
+| Premier League minute | 0.79 | 88% | 91% / 0% |
+| Ceiling camera (CCTV-style) | 1.00 | 100% | 88% / 12% |
+| Tripod, 8-ball (CCTV-style) | 0.74 | 82% | 50% / 18% |
 
 ---
 
@@ -51,7 +56,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **23 Sep 2026** | Work computer: clock, ball height, events, identity, ball numbers | Positions right on broadcasts; cushions 5 → 40 of 44 |
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
-| **28 Sep 2026** | YouTube links; other venues; balls kept through cuts | Paste a link, track the minutes picked; the table found at 11 venues; a broadcast minute lists 26–44 balls, not 48–129 |
+| **28 Sep 2026** | YouTube links; other venues; balls kept through cuts; answer keys; a learned ball check | Paste a link, track the minutes picked; the table found at 11 venues; `python main.py` opens the app; scored on 4 real clips: 0.74–1.00 (the US Open 0.35 → 0.94) |
 
 ---
 
@@ -200,7 +205,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 
 ## 📅 28 Sep 2026: A YouTube link, other venues, and cuts
 
-*Work computer, scratch venv (+ yt-dlp). Rows 1–6 pushed (`1387635`); rows 7–11 committed as `cfb3b8b`, rows 12–18 in the commit after it, not pushed. `results/` regenerated at 12:53 (row 18).*
+*Work computer, scratch venv (+ yt-dlp). Rows 1–6 pushed (`1387635`); rows 7–11 committed as `cfb3b8b`, rows 12–18 in the commit after it, not pushed. `results/` regenerated at 12:53 (row 18). Rows 19–20: a check, no code change. Row 22 committed as `281daa2`, rows 23–30 (evening, another session) in the commit after it; all pushed, with `cfb3b8b` and `49446ee`. `results/` and `reports/` regenerated 17:07.*
 
 ### State at the end of the day
 
@@ -209,10 +214,15 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | ✅ Links | Paste a link, pick the part, see the estimate; only that part is downloaded, then tracked (app and command line) |
 | ✅ Estimate | The example final: 1 h 45 min for all 61 min in the app; a 3–5 min part 5–8 min |
 | ✅ Other venues | The table found at all 11 tried; grey cloth by itself |
-| ✅ Cuts | A ball keeps its id across a cut and a change of camera (simulated cuts: MOTA 0.40 → 0.78) |
-| ⚠️ Broadcasts | Still 3–4× too many ids a minute (Mosconi 44, Premier League 33, UK Open 26); replays tracked as play |
-| ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno); real CCTV footage |
-| ✅ Tests | 152 pass (131 at the start) |
+| ✅ Cuts | A ball keeps its id across a cut and a change of camera (simulated cuts: MOTA 0.40 → 0.84) |
+| ✅ Answer keys | 4 real clips marked by hand; `tools/real_eval.py` scores any version against them |
+| ✅ US Open 3 min | 0.94 against its key (0.35 → 0.83 with the cut handling, not worse: row 23) |
+| ✅ Ball model | Learned check on every proposed ball; names the balls; runs through OpenCV |
+| ⚠️ Broadcasts | 1.35–1.9 ids per ball; replays tracked as play; shots merge (Premier League 4 of 7) |
+| ⚠️ `.venv` | Still fails on this computer (numpy/scipy/PyYAML built for 3.12); the app runs from the scratch venv |
+| ✅ `python main.py` | On its own it opens the app (it printed the usage) |
+| ⚠️ Not tried | Sites other than YouTube; the other computer (needs yt-dlp, and Node or Deno); your own CCTV clips (2 others tried: 1.00, 0.74) |
+| ✅ Tests | 167 pass (131 at the start) |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
 |---|---|---|---|
@@ -234,6 +244,18 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 16 | New views 6 in too big; one "table" crossed itself | Half-size mask keeps the nose line; corner orders aligned; outlines must follow the cloth | 6.25 → 0.8 in |
 | 17 | No measure of cuts | `robustness.py` *cuts* variant; `evaluate.py` ids per ball | MOTA 0.404 → 0.782, precision 1.000 |
 | 18 | Checks | 152 tests; `run_report` 12:53 and 16 robustness variants unchanged; venue minutes | Balls 91 → 44, 129 → 33, 48 → 26; ✏️ Mosconi was 35 before its overhead camera was tracked |
+| 19 | "Is the app working now?" | Ran it (port 8766): 152 tests; every page; `fedor_shot` and your US Open 3 min tracked; `fedor_shot` replayed live | ✅ All work; `fedor_shot` as on 26 Sep; ⚠️ US Open 3 min: 25 → 66 balls, 17 → 10 shots since row 13 (same on 2 runs). ✏️ *Correction (evening): the "25" were 334 tracks under ids restarted at 25 camera changes; against an answer key the clip went 0.35 → 0.83 (row 23)* |
+| 20 | A second copy of the app on the same workspace | 🔍 It shows the other copy's running job as "failed: the app was closed"; the file is untouched | ⚠️ Not fixed; shows `done` once that copy finishes |
+| 21 | "I can't run the main.py file" | 🔍 `.venv` re-pointed to this computer's Python 3.14 on 26 Sep, but its numpy/scipy are the other computer's 3.12 builds | ⚠️ Not fixed: a reinstall needs your OK |
+| 22 | PyCharm's Run starts `main.py` with no arguments: usage printed, no app | No arguments now means `app`; test added; ❌ reinstall into `.venv` → blocked again, needs your OK | ✅ Opens on :8765 (scratch venv); 153 pass |
+| 23 | "The US Open got worse" (25 → 66 balls) | 🔍 A counting artefact (row 19). Answer keys for 4 real clips (`tools/truth/`, 2 CCTV-style) and `tools/real_eval.py` | Key: 0.35 → 0.83 with the cut handling; only numbers worse (wrong 7 → 20%) |
+| 24 | Balls lost at cuts; a player passing the lens taken for a cut | Someone in front ≠ cut (the rest of the bed unchanged and still cloth); a colour per camera (❌ fast relearning per view: Premier League ids 1.9 → 2.6) | US Open 0.83 → 0.86 |
+| 25 | Ceiling camera's table 3 in short, its 8 never seen | Colourless cloth ignores hue; a cushion-nose move skipped when its rays disagree | That clip 0.68 → 0.97 |
+| 26 | Chalk, hands, shadows as balls; numbers wrong on other sets | Ball model (`billiards/ballnet.py`, 288 KB, OpenCV), from 24.7k simulator + 16.9k hand-labelled real crops, 14 clips (❌ no sample clips: the dark-blue 2 dropped; ❌ best epoch picked: weights averaged instead) | Held out: balls 98.5%, non-balls 89%, colour 95% |
+| 27 | The green 6 re-found as 6 balls | A lost ball waits 20 s where it was | With the model: US Open ids per ball 1.7 → 1.4 (not measured alone) |
+| 28 | 2nd rack unnamed; set flipped; orange 7 | Potted numbers freed; set remembered ~40 s; brown ≈ orange; caps count | Named right: US Open 69 → 84%, Premier League 76 → 91% |
+| 29 | Far-cushion balls unseen | Far cushion searched by default | Tripod clip 0.59 → 0.74; synthetic 0.896 → 0.910 |
+| 30 | Checks | 167 tests; `run_report --ground-truth --real` 17:07; 17 robustness variants; venues | Synthetic 0.910 / 0.917 (0.844 / 0.816); `albin_fedor`'s 5 potted; ⚠️ replays tracked, shots merge on broadcasts, ~10% slower |
 
 ---
 

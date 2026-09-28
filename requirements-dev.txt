@@ -1,1 +1,4 @@
 pytest>=7.0
+# Only to retrain the ball model (tools/train_ballnet.py); the tracker runs it through OpenCV.
+# torch
+# onnx

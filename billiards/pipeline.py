@@ -85,6 +85,9 @@ class _View:
     surround_ref: Optional[float] = None
     #: A picture of this view, to measure the camera's motion against.
     keyframe: Optional[Keyframe] = None
+    #: Which view this is, for the tracker (``MultiObjectTracker.set_view``);
+    #: never reused, though old views are dropped from the list.
+    uid: int = 0
 
 
 #: Camera views remembered at once.  A broadcast uses two or three; a camera
@@ -116,6 +119,17 @@ _ALIGNED_BED = 0.9
 _ALIGNED_SURROUND = 0.2
 _SURROUND_SLACK = 0.1
 
+#: Someone between the camera and the table is not a cut (``_occluded``):
+#: the rest of the bed is still the picture it was, pixel for pixel, and
+#: still cloth.  On the 2026 US Open a player walking past the lens left
+#: 0.64-0.77 of the bed unchanged and 0.64-0.77 of it cloth; cuts and wipes
+#: left at most 0.23 unchanged, and the first frames of a dissolve, 0.59
+#: unchanged, were only 0.24 cloth.  A pixel is unchanged within
+#: ``_UNCHANGED_LEVEL`` of full scale, in grey.
+_OCCLUDED_MIN_SHARE = 0.55
+_OCCLUDED_MAX_GAP = 0.15
+_UNCHANGED_LEVEL = 0.04
+
 
 class TrackingPipeline:
     """Stateful per-frame tracker.  Own the loop yourself, or use ``run``."""
@@ -146,6 +160,7 @@ class TrackingPipeline:
         #: by one tracker, in table inches, which do not depend on the camera.
         self._views: List[_View] = [_View(table, self.detector, self.renderer)]
         self._view = self._views[0]
+        self._next_view_uid = 1
         self.view_switches = 0
         #: Frames that gave the recovery outlines, for fitting a new view's
         #: cushion noses; and a re-check's outlines of a table that seems to
@@ -177,6 +192,12 @@ class TrackingPipeline:
         self._prev_bed: Optional[np.ndarray] = None
         self._prev_bed_grey: Optional[np.ndarray] = None
         self._bed_roi_cache: Optional[Tuple[Any, ...]] = None
+        #: This frame's bed in grey, and the last one on which the bed was
+        #: cloth as usual: what ``_occluded`` compares.
+        self._bed_grey_now: Optional[np.ndarray] = None
+        self._clean_bed_grey: Optional[np.ndarray] = None
+        #: Frames tracked with someone between the camera and the table.
+        self.frames_occluded = 0
         #: False while the calibrated table is not on screen.  Tracking is
         #: suspended rather than producing balls in the crowd.
         self.view_valid = True
@@ -437,16 +458,23 @@ class TrackingPipeline:
         threshold = tcfg.view_change_coverage_ratio * self._reference_coverage
 
         if repainted and self.view_valid:
-            # A cut needs no patience and no second opinion: nothing that
-            # happens *on* a table repaints it.  Acting on the first frame is
-            # the whole point -- by the time coverage has collapsed far enough
-            # to notice, a dissolve has already been fed to the tracker for a
-            # dozen frames, which is long enough to confirm phantom tracks.
+            # A cut needs no patience: nothing that happens *on* a table
+            # repaints it.  Acting on the first frame is the whole point -- by
+            # the time coverage has collapsed far enough to notice, a dissolve
+            # has already been fed to the tracker for a dozen frames, which is
+            # long enough to confirm phantom tracks.  Something passing close
+            # in front of the lens repaints the bed too, though, and leaves
+            # the rest of it as it was.
+            if self._occluded(coverage):
+                self.frames_occluded += 1
+                return False
             self._lose_view(frame_index)
         elif coverage >= threshold and self.view_valid:
             self._low_coverage_frames = 0
             self._recovery_quads.clear()
             self._recovery_frames.clear()
+            if coverage >= _SUSPECT_COVERAGE * self._reference_coverage:
+                self._clean_bed_grey = self._bed_grey_now
             if coverage < _SUSPECT_COVERAGE * self._reference_coverage and tcfg.recalibration_interval > 0:
                 # Too little of the bed is cloth to be nothing, not so little
                 # as to be a cut: a slow wipe to another camera (2026 Premier
@@ -462,6 +490,9 @@ class TrackingPipeline:
             if self._low_coverage_frames < max(1, tcfg.view_change_patience):
                 # A player leaning across the table dips coverage for a frame or
                 # two; that is not a cut, and tracks should coast through it.
+                return False
+            if self._occluded(coverage):
+                self.frames_occluded += 1
                 return False
             self._lose_view(frame_index)
 
@@ -529,7 +560,7 @@ class TrackingPipeline:
         tcfg = self.cfg.table
         bed, bed_area = self._bed_roi(frame.shape)
         if bed_area == 0:
-            self._prev_bed = self._prev_bed_grey = None
+            self._prev_bed = self._prev_bed_grey = self._bed_grey_now = None
             return False, False
 
         x, y, w, h = self._bed_roi_cache[1]
@@ -539,6 +570,7 @@ class TrackingPipeline:
         # the whole clip.
         patch = frame[y : y + h, x : x + w].copy()
         grey = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+        self._bed_grey_now = grey
         prev, self._prev_bed = self._prev_bed, patch
         prev_grey, self._prev_bed_grey = self._prev_bed_grey, grey
         if prev is None or prev.shape != patch.shape:
@@ -565,6 +597,37 @@ class TrackingPipeline:
             step = cv2.max(cv2.max(step[:, :, 0], step[:, :, 1]), step[:, :, 2])
             repeats = _count_above(step, bed, tcfg.repeat_frame_level) <= budget
         return repainted, repeats
+
+    def _occluded(self, coverage: float) -> bool:
+        """Is the bed hidden in part by something in front of it, not cut away?
+
+        A player walking past the lens repaints much of the bed in a frame
+        and takes its cloth coverage down, as a cut does, and tracking used
+        to stop until the whole bed was clear again: on the 2026 US Open,
+        every ball on two keyframes of the answer key.  But what is not
+        behind the player is the picture it was, pixel for pixel, and still
+        cloth, so the share of the bed left unchanged since the last clean
+        frame and the share still cloth are both high and nearly equal.
+        After a cut or during a dissolve, little is unchanged, or what is
+        unchanged is no longer cloth.  The balls behind the player coast.
+        """
+        clean, now = self._clean_bed_grey, self._bed_grey_now
+        if clean is None or now is None or clean.shape != now.shape:
+            return False
+        bed, bed_area = self._bed_roi_cache[2], self._bed_roi_cache[3]
+        if bed_area == 0 or bed.shape != now.shape:
+            return False
+        # A camera that sets its own exposure brightens the whole picture as
+        # a dark figure fills it (a CCTV-style tripod camera, 28 Sep 2026:
+        # 0.54 of the bed unchanged with 0.72 still cloth), so the frames are
+        # compared after taking out the change in overall brightness.
+        step = np.subtract(now, clean, dtype=np.int16)
+        shift = int(np.median(step[bed > 0]))
+        if shift:
+            clean = cv2.add(clean, shift) if shift > 0 else cv2.subtract(clean, -shift)
+        same = bed_area - _count_above(cv2.absdiff(now, clean), bed, _UNCHANGED_LEVEL)
+        share = same / float(bed_area)
+        return share >= _OCCLUDED_MIN_SHARE and abs(share - coverage) <= _OCCLUDED_MAX_GAP
 
     def _bed_roi(self, shape: Tuple[int, ...]) -> Tuple[np.ndarray, int]:
         """The bed mask cropped to its own bounding box, and its area.
@@ -678,7 +741,8 @@ class TrackingPipeline:
         # flip over at every cut.
         first = self._views[0].renderer
         renderer._flip_x, renderer._flip_y = first._flip_x, first._flip_y
-        view = _View(table, BallDetector(self.cfg, table, self.cloth), renderer)
+        view = _View(table, BallDetector(self.cfg, table, self.cloth), renderer, uid=self._next_view_uid)
+        self._next_view_uid += 1
         view.surround_ref = view.detector.surround_cloth_coverage(mask)
         view.keyframe = Keyframe(frame, table)
         self._views.append(view)
@@ -725,9 +789,10 @@ class TrackingPipeline:
         self._view = view
         self.table, self.detector, self.renderer = view.table, view.detector, view.renderer
         self.tracker.table = view.table
+        self.tracker.set_view(view.uid)
         self.event_detector.table = view.table
         self._reference_coverage = None
-        self._prev_bed = self._prev_bed_grey = None
+        self._prev_bed = self._prev_bed_grey = self._clean_bed_grey = None
         self.view_switches += 1
 
     def _known_view(self, quad: np.ndarray) -> Optional[_View]:
@@ -981,6 +1046,7 @@ class TrackingPipeline:
             "events": self.event_summary(),
             "recalibrations": self.recalibrations,
             "frames_view_lost": self.view_lost_frames,
+            "frames_occluded": self.frames_occluded,
             "frames_repeated": self.frames_repeated,
             "clock": self.clock.to_dict(),
             "shots": len(self.shots.shots),

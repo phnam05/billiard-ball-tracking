@@ -217,3 +217,86 @@ def assign(
         kL = float(np.clip(np.exp(np.median(np.log(ratios_L))), *_SCALE_LIMITS["lightness"]))
         kC = float(np.clip(np.exp(np.median(np.log(ratios_C))), *_SCALE_LIMITS["chroma"]))
     return result, mean_cost, (kL, kC)
+
+
+#: The ball model's colour families (``billiards.ballnet.FAMILIES``), in its
+#: order: every family of ``FAMILIES`` above, and black.
+MODEL_FAMILIES = ["yellow", "blue", "red", "pink", "purple", "orange", "green", "maroon", "black"]
+
+#: Probabilities from the ball model are clipped to this before their logs
+#: are taken, so one confident mistake cannot make a number impossible.
+_MODEL_FLOOR = 0.02
+
+
+#: Colours one maker's ball can have where another's has the other: a set's
+#: 7 is maroon, a light brown (the Aramith TV set) or orange (a ceiling
+#: camera's club set, 28 Sep 2026).  Each counts for this much of the other.
+_MODEL_NEIGHBOURS = {"maroon": "orange", "orange": "maroon"}
+_MODEL_NEIGHBOUR_WEIGHT = 0.5
+#: A stripe's caps, measured off the picture (``ColorSignature.dark_fraction``)
+#: as the palette does, cost at most this much -- they are what tells the
+#: two sets apart once the pink or orange ball is gone, and in 9-ball the 9
+#: is on the table to the end.
+_MODEL_CAPS_MAX = 1.5
+
+
+def model_cost_matrix(
+    family_logp: Sequence[np.ndarray],
+    stripe_p: Sequence[float],
+    specs: Sequence[BallSpec],
+    dark: Optional[Sequence[float]] = None,
+) -> np.ndarray:
+    """How unlike each ball each track is, by the ball model's evidence.
+
+    ``family_logp`` is each track's average log probability of each colour
+    family (``MODEL_FAMILIES``), ``stripe_p`` its average probability of being
+    a stripe.  The cost of a number is minus the log probability of its
+    family and of its pattern: 0.7 for an even chance of each, 2.3 for one
+    in ten.  ``dark``, each track's black fraction, adds what a stripe's caps
+    say.  In the same shape as ``cost_matrix``.
+    """
+    n, m = len(family_logp), len(specs)
+    if not n or not m:
+        return np.zeros((n, m), dtype=np.float64)
+    fam = np.exp(np.asarray(family_logp, dtype=np.float64).reshape(n, len(MODEL_FAMILIES)))
+    near = fam.copy()
+    for a, b in _MODEL_NEIGHBOURS.items():
+        near[:, MODEL_FAMILIES.index(a)] += _MODEL_NEIGHBOUR_WEIGHT * fam[:, MODEL_FAMILIES.index(b)]
+    idx = np.array([MODEL_FAMILIES.index(s.family) for s in specs])
+    striped = np.array([s.striped for s in specs])
+    p = np.clip(np.asarray(stripe_p, dtype=np.float64).reshape(n, 1), _MODEL_FLOOR, 1.0 - _MODEL_FLOOR)
+    pattern = np.where(striped[None, :], -np.log(p), -np.log(1.0 - p))
+    cost = -np.log(np.clip(near[:, idx], _MODEL_FLOOR, None)) + pattern
+    if dark is not None:
+        d = np.asarray(dark, dtype=np.float64).reshape(n, 1)
+        black_caps = np.array([s.caps == "black" for s in specs])[None, :]
+        caps = np.where(black_caps, np.maximum(0.0, _CAPS_BLACK_FROM - d),
+                        np.maximum(0.0, d - _CAPS_WHITE_UP_TO)) / _CAPS_SOFTNESS
+        cost = cost + np.where(striped[None, :], np.minimum(caps, _MODEL_CAPS_MAX), 0.0)
+    return cost
+
+
+def assign_costs(
+    cost: np.ndarray,
+    specs: Sequence[BallSpec],
+    max_cost: float,
+    current: Optional[Sequence[Optional[int]]] = None,
+    stickiness: float = 0.0,
+) -> List[Optional[int]]:
+    """Number every ball at once from a cost matrix, as ``assign`` does."""
+    n = cost.shape[0]
+    if n == 0 or not specs:
+        return [None] * n
+    numbers = [s.number for s in specs]
+    cost = cost.copy()
+    if current is not None and stickiness > 0:
+        for i, num in enumerate(current):
+            if num in numbers:
+                cost[i, numbers.index(num)] -= stickiness
+    padded = np.hstack([cost, np.full((n, n), max_cost)])
+    rows, cols = solve(padded)
+    result: List[Optional[int]] = [None] * n
+    for r, c in zip(rows, cols):
+        if c < len(specs):
+            result[r] = numbers[c]
+    return result
