@@ -14,7 +14,7 @@ loses its detection coasts on its motion model instead of dying.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Deque, Dict, List, Optional, Sequence, Tuple
 
@@ -75,6 +75,26 @@ _MODEL_ALPHA = 0.06
 _MODEL_CONFIRM = 0.5
 _MODEL_ROLE = 0.5
 
+
+def _sure_ball(detection: Detection, cfg: Config) -> bool:
+    """Whether the ball model looked at this detection and is sure it is a
+    ball (``DetectorConfig.raised_band_start_p``)."""
+    return detection.family_p is not None and detection.ball_p >= cfg.detector.raised_band_start_p
+
+
+#: A detection this close (in ball diameters) to where a confirmed ball at
+#: rest, seen within the last this many updates, is predicted is that ball,
+#: whatever its colour (``MultiObjectTracker._overlap_matches``)...
+_OVERLAP_BALL_DIAMETERS = 0.5
+_OVERLAP_RECENT_UPDATES = 2
+#: ...if it is no faster than this many times the stationary speed.
+_OVERLAP_REST_FACTOR = 2.0
+
+#: A ball that vanished in a pocket's mouth is given up (as potted) after
+#: this many updates unseen, not after the long wait a hidden ball earns; it
+#: can still come back from limbo.
+_DROPPED_UPDATES = 3
+
 #: How much better a rival has to score before a role changes hands.  Two
 #: similar-looking balls otherwise trade the "CUE" label back and forth every
 #: few frames, which is worse than being slightly wrong consistently.
@@ -113,6 +133,7 @@ class Track:
         "last_observed_xy", "role", "number", "clean_samples", "band_hits",
         "aside_frame", "aside_frames", "view_colour",
         "ball_evidence", "cue_evidence", "family_logp", "stripe_evidence", "model_samples",
+        "dropped",
     )
 
     def __init__(
@@ -147,6 +168,7 @@ class Track:
         self.trail: Deque[TrackSample] = deque(maxlen=trail_cap)
         self.last_image_xy = detection.centre_image
         self.last_observed_xy = detection.centre_table
+        self.dropped = False
         self.last_radius_px = detection.radius_px
         self.birth_frame = frame
         self.death_frame: Optional[int] = None
@@ -264,6 +286,7 @@ class Track:
         self.last_image_xy = detection.centre_image
         self.last_observed_xy = detection.centre_table
         self.last_radius_px = detection.radius_px
+        self.dropped = False
 
         # Colour is only learned from detections of this ball on its own.  One
         # split out of a cluster samples its neighbours round its rim, so in a
@@ -294,11 +317,14 @@ class Track:
         if self.state is TrackState.TENTATIVE:
             # Seen mostly past the far edge, it never rolled there from the
             # bed: a hand on the rail, or a ball's own top in the shadow under
-            # the cushion's nose.  It is never confirmed.  Nor is one the ball
-            # model mostly thinks is not a ball.
+            # the cushion's nose.  It is never confirmed, unless the ball model
+            # is sure it is a ball: one frozen there since the first frame.
+            # Nor is one the ball model mostly thinks is not a ball.
             if (
                 self.hits >= cfg.tracker.min_hits_to_confirm
-                and 2 * self.band_hits <= self.hits
+                and (2 * self.band_hits <= self.hits or (
+                    self.ball_evidence is not None
+                    and self.ball_evidence >= cfg.detector.raised_band_start_p))
                 and (self.ball_evidence is None or self.ball_evidence >= _MODEL_CONFIRM)
             ):
                 self.state = TrackState.CONFIRMED
@@ -384,6 +410,10 @@ class MultiObjectTracker:
         self._set_fit: Dict[str, float] = {}
         self._set_scales: Dict[str, Tuple[float, float]] = {s: (1.0, 1.0) for s in self._ball_sets}
         self._allowed_numbers = ballnum.parse_numbers(bc.numbers)
+        #: The frame the current rack was first seen from, and the frame being
+        #: tracked: a potted ball's number is held for the rest of its rack.
+        self._rack_from = 0
+        self._now = 0
 
     # -- cost --------------------------------------------------------------
 
@@ -424,6 +454,48 @@ class MultiObjectTracker:
         scored = dist / gate + tc.color_cost_weight * (colour / tc.max_color_distance)
         return np.where(allowed, scored, cost)
 
+    def _overlap_matches(
+        self, detections: Sequence[Detection], tracks: Sequence[int], dets: Sequence[int]
+    ) -> List[Tuple[int, int]]:
+        """Detections that can only be a ball just seen, whatever their colour.
+
+        Two balls cannot overlap, so a detection closer than half a ball to
+        where a ball at rest, seen a moment ago, is predicted is that ball,
+        even when its colour is outside the gate: a ball touching another,
+        split out of their blob a few pixels off, samples its neighbour and
+        the shadow round it.  On the tripod answer key the cue ball rolled up
+        against the 1 on the far cushion, and the 1's split-off half, 48 apart
+        in colour against a gate of 42, started a second track on top of it.
+        Not learned from, since its colour is not the ball's.  Only for a ball
+        at rest, whose prediction is where it was: done for rolling balls too,
+        it changed four matches on the screen-recorded synthetic break, and
+        that was enough to tip its source clock from 25 to 32.5 fps.
+        """
+        limit = _OVERLAP_BALL_DIAMETERS * self.table.ball_diameter_in
+        at_rest = _OVERLAP_REST_FACTOR * self.cfg.tracker.stationary_speed_in_s
+        pairs: List[Tuple[float, int, int]] = []
+        for ti in tracks:
+            track = self.tracks[ti]
+            if (
+                track.state is TrackState.TENTATIVE
+                or track.time_since_update > _OVERLAP_RECENT_UPDATES
+                or track.speed > at_rest
+            ):
+                continue
+            pos = np.asarray(track.kf.position, dtype=np.float64)
+            for di in dets:
+                d = float(np.linalg.norm(pos - np.asarray(detections[di].centre_table, dtype=np.float64)))
+                if d <= limit:
+                    pairs.append((d, ti, di))
+        out: List[Tuple[int, int]] = []
+        used_t, used_d = set(), set()
+        for _, ti, di in sorted(pairs):
+            if ti not in used_t and di not in used_d:
+                used_t.add(ti)
+                used_d.add(di)
+                out.append((ti, di))
+        return out
+
     # -- main step ---------------------------------------------------------
 
     def update(
@@ -434,6 +506,7 @@ class MultiObjectTracker:
         t_s: float,
     ) -> List[Track]:
         dt = float(max(dt, 1e-4))
+        self._now = frame
         for track in self.tracks:
             track.predict(dt)
 
@@ -448,8 +521,15 @@ class MultiObjectTracker:
             if was_tentative and track.state is TrackState.CONFIRMED:
                 confirmed_now.append(track)
 
+        if unmatched_tracks and unmatched_dets:
+            for ti, di in self._overlap_matches(detections, unmatched_tracks, unmatched_dets):
+                unmatched_tracks.remove(ti)
+                unmatched_dets.remove(di)
+                self.tracks[ti].update(replace(detections[di], colour_ok=False), self.cfg, self.view)
+
         for ti in unmatched_tracks:
             self.tracks[ti].mark_missed(self.cfg)
+            self._drop_into_pocket(self.tracks[ti])
             # Only a ball that was not seen: a seen one is where it was seen.
             self._bounce_off_rails(self.tracks[ti])
 
@@ -459,8 +539,8 @@ class MultiObjectTracker:
         for di in fresh:
             # Past the far edge only balls already being followed are looked
             # for: a hand on the far rail is there too, and is never a ball
-            # that rolled there.
-            if not detections[di].in_raised_band:
+            # that rolled there -- unless the ball model is sure it is a ball.
+            if not detections[di].in_raised_band or _sure_ball(detections[di], self.cfg):
                 self._spawn(detections[di], frame)
         if self.aside and confirmed_now:
             # Hidden (by a player, a cluster) on the first frames back, a ball
@@ -485,6 +565,25 @@ class MultiObjectTracker:
             "tentative": sum(1 for t in self.tracks if t.state is TrackState.TENTATIVE),
         }
         return self.active_tracks()
+
+    def _drop_into_pocket(self, track: Track) -> None:
+        """A ball last seen in a pocket's mouth, and now not, has dropped.
+
+        Its track is stopped where it was last seen, to be given up there as
+        potted.  Followed into the jaws by the detector
+        (``BallDetector._balls_in_pockets``), a ball's last few sightings
+        jitter as it drops, and the speed they gave the ceiling-camera answer
+        key's 1 pointed along the rail: it coasted out of the pocket, was
+        given up as lost, and its pot was never reported.
+        """
+        if track.time_since_update != 1 or not self.table.has_pockets:
+            return
+        mouth = self.cfg.detector.pocket_exclusion_ball_diameters * self.table.ball_diameter_in
+        seen = np.asarray(track.last_observed_xy, dtype=np.float64)
+        if self.table.nearest_pocket_distance((float(seen[0]), float(seen[1]))) <= mouth:
+            track.kf.x[:2] = seen
+            track.kf.x[2:] = 0.0
+            track.dropped = True
 
     def _bounce_off_rails(self, track: Track) -> None:
         """Reflect an unseen ball's prediction off any cushion it has reached.
@@ -544,7 +643,11 @@ class MultiObjectTracker:
             if track.state is TrackState.TENTATIVE:
                 if track.time_since_update > tc.max_age_tentative:
                     reason = "spurious"
-            elif track.time_since_update > self._coasting_budget(track):
+            elif track.time_since_update > self._coasting_budget(track) or (
+                track.dropped and track.time_since_update > _DROPPED_UPDATES
+            ):
+                # A ball that dropped (``_drop_into_pocket``) is not hidden:
+                # coasting at the pocket, it was drawn there for a second.
                 reason = "lost"
 
             # A coasting track predicted well off the bed is either potted or a
@@ -1082,15 +1185,22 @@ class MultiObjectTracker:
             return
         # A ball set aside at a cut keeps its number too, which is also what
         # lets it be found again by colour rather than as a rival 7.  A potted
-        # ball's number is kept from the rest, unless the ball model is naming
-        # them: then a ball of that colour on the table is that ball -- the pot
-        # was wrong, or it is a new rack (the 2026 US Open highlights run two
-        # racks, and every ball potted in the first went unnamed in the second).
-        modelled = any(t.family_logp is not None for t in self.tracks)
+        # ball's number is kept from the rest until the next rack, which shows
+        # itself by more balls on the table than can be left of this one.
+        # Holding it for good left every ball potted in the first of the 2026
+        # US Open's two racks unnamed in the second; freeing it at once (28 Sep
+        # evening) let the tripod answer key's far yellow 1, which the ball
+        # model reads as a stripe, take the potted 9's number.
+        potted = [
+            t for t in self.finished
+            if t.death_reason == "potted" and t.role != "cue" and (t.death_frame or 0) >= self._rack_from
+        ]
+        on_table = sum(1 for t in self.tracks if t.is_visible)
+        if on_table > len(self._allowed_numbers) + 1 - len(potted):
+            self._rack_from = self._now
+            potted = []
         taken = {
-            t.number for t in list(self.limbo) + list(self.finished) + list(self.aside)
-            if t.number is not None
-            and (t in self.limbo or t in self.aside or (t.death_reason == "potted" and not modelled))
+            t.number for t in list(self.limbo) + list(self.aside) + potted if t.number is not None
         }
         allowed = [n for n in self._allowed_numbers if n not in taken]
         current = [t.number for t in candidates]

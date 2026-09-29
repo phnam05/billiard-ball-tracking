@@ -48,6 +48,7 @@
     {"frame": 3585, "balls": [["cue", 585.5, 452.5], [3, 767.3, 342.2], [5, 722.3, 504.6], [6, 551.6, 514.3], [7, 771.9, 310.2], [8, 647.0, 288.5], [9, 759.0, 365.0]]}
   ],
   "shots": [
+    {"frame": 0, "potted": [], "note": "struck just before the clip starts: the cue ball and the 1 are already rolling at frame 0 (added 29 Sep 2026, when real_eval.py began scoring shots)"},
     {"frame": 401, "potted": [4], "note": "from the near end; the 1 is hit and the 4 drops"},
     {"frame": 803, "potted": [], "note": "seen from the side camera; cue ball comes back to the far rail"},
     {"frame": 1367, "potted": [], "note": "from the far rail"},

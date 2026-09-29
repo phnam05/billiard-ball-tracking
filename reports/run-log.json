@@ -56,7 +56,7 @@
             "samples": 3902
           },
           "real_pots": 2,
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -177,7 +177,7 @@
             "samples": 3825
           },
           "real_pots": 2,
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -297,7 +297,7 @@
             "max": 0.441,
             "samples": 3825
           },
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "balls_visible": 9,
@@ -423,7 +423,7 @@
             "max": 0.441,
             "samples": 3825
           },
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "written": [
@@ -561,7 +561,7 @@
             "max": 0.441,
             "samples": 3825
           },
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "written": [
@@ -699,7 +699,7 @@
             "max": 0.441,
             "samples": 3825
           },
-          "detectable_pots": 1
+          "detectable_pots": 2
         },
         "fedor_jump": {
           "written": [
@@ -801,7 +801,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 405,
           "clock": {
@@ -1000,7 +1000,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 405,
           "clock": {
@@ -1202,7 +1202,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 403,
           "clock": {
@@ -1396,7 +1396,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 403,
           "clock": {
@@ -1595,7 +1595,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 403,
           "clock": {
@@ -1793,7 +1793,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 403,
           "clock": {
@@ -1986,7 +1986,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 410,
           "clock": {
@@ -2179,7 +2179,7 @@
           ],
           "balls_visible": 7,
           "real_pots": 2,
-          "detectable_pots": 1,
+          "detectable_pots": 2,
           "frames": 751,
           "frames_repeated": 412,
           "clock": {
@@ -2444,6 +2444,596 @@
           "processing_fps": 37.36
         }
       }
+    },
+    {
+      "id": "2026-09-29T10:08:51+07:00",
+      "commit": "7b8d236",
+      "dirty": true,
+      "note": "29 Sep: far-cushion balls the ball model is sure of start tracks; a detection on a ball at rest is that ball; a potted number is held until a new rack; shots: settle by time, trembling balls do not move, shots where nothing went anywhere dropped, jump strikes, balls set off together = the picture; real_eval scores shots",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 2,
+          "frames": 751,
+          "frames_repeated": 412,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 30.0,
+            "moving_repeats": 26,
+            "evidence_frames": 29,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 9,
+          "events": {
+            "ball_struck": 3,
+            "collision": 2,
+            "cushion": 5,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 6 first -- 1 cushion -- nothing potted -- 1.2s",
+            "shot 2: CUE struck -- hit the 5 first -- 1 cushion -- potted the 5 -- 3.3s"
+          ],
+          "processing_fps": 18.49,
+          "tracks_reported": 6,
+          "short_tracks": [],
+          "peak_speed_in_s": 423.9,
+          "speed_jitter_in_s": {
+            "mean": 11.11,
+            "max": 277.3,
+            "samples": 155
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 2.63,
+            "samples": 3739
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 22.259,
+            "moving_repeats": 29,
+            "evidence_frames": 28,
+            "skipped_source_frames": 2
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "cushion": 4,
+            "collision": 3,
+            "ball_struck": 4
+          },
+          "shots": [
+            "shot 1: CUE struck -- 3 cushions -- 2 contacts -- nothing potted -- 5.6s"
+          ],
+          "processing_fps": 15.78,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.7,
+          "speed_jitter_in_s": {
+            "mean": 3.9,
+            "max": 88.6,
+            "samples": 284
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.427,
+            "samples": 2664
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.583,
+            "moving_repeats": 59,
+            "evidence_frames": 37,
+            "skipped_source_frames": 36
+          },
+          "frames_view_lost": 23,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 8.5s"
+          ],
+          "processing_fps": 16.13,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.4,
+          "speed_jitter_in_s": {
+            "mean": 3.04,
+            "max": 35.8,
+            "samples": 238
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.356,
+            "samples": 3401
+          }
+        }
+      },
+      "open_issues": [
+        "dissolves still draw ghost balls and open 4 extra shots on the Premier League minute",
+        "replays tracked as play",
+        "Premier League side view (both table ends cut off) not tracked",
+        "ball model reads the tripod's dark-blue 2 as black and the US Open's light-blue 2 as green"
+      ],
+      "ground_truth": {
+        "recall": 0.9129,
+        "precision": 0.9993,
+        "mota": 0.9102,
+        "id_switches": 3,
+        "position_error_in_median": 0.312,
+        "speed_error_median_relative": 0.0288,
+        "speed_error_p95_in_s": 11.97,
+        "events_found": {
+          "collision": "5/6 (+2 false)",
+          "cushion": "22/23 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.9284,
+        "precision": 0.9931,
+        "mota": 0.9167,
+        "id_switches": 10,
+        "position_error_in_median": 0.227,
+        "speed_error_median_relative": 0.0547,
+        "speed_error_p95_in_s": 20.41,
+        "events_found": {
+          "collision": "3/5 (+5 false)",
+          "cushion": "19/21 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 82,
+          "evidence_frames": 98,
+          "skipped_source_frames": 13
+        }
+      },
+      "real": {
+        "county-8ball": {
+          "keyframes": 16,
+          "balls": 66,
+          "score": 0.924,
+          "found": 1.0,
+          "real": 0.957,
+          "named_right": 0.576,
+          "named_wrong": 0.121,
+          "ids_per_ball": 1.4,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.19,
+          "paused": 0.023,
+          "off_play": {},
+          "track_ids": 14,
+          "tracks_created": 32,
+          "shots": 3,
+          "processing_fps": 33.14,
+          "shots_marked": 3,
+          "shots_found": 3,
+          "shots_extra": 0,
+          "pots_right": 3,
+          "shot_start_offset_s": 0.07
+        },
+        "demo-table-cam": {
+          "keyframes": 12,
+          "balls": 96,
+          "score": 1.0,
+          "found": 1.0,
+          "real": 1.0,
+          "named_right": 0.969,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.0,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.0,
+          "paused": 0.005,
+          "off_play": {},
+          "track_ids": 10,
+          "tracks_created": 15,
+          "shots": 2,
+          "processing_fps": 19.0,
+          "shots_marked": 2,
+          "shots_found": 2,
+          "shots_extra": 0,
+          "pots_right": 2,
+          "shot_start_offset_s": -0.13
+        },
+        "premier-league": {
+          "keyframes": 22,
+          "balls": 187,
+          "score": 0.813,
+          "found": 0.877,
+          "real": 0.97,
+          "named_right": 0.909,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.7,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.23,
+          "paused": 0.089,
+          "off_play": {
+            "graphic": 0.995
+          },
+          "track_ids": 33,
+          "tracks_created": 42,
+          "shots": 12,
+          "processing_fps": 22.01,
+          "shots_marked": 8,
+          "shots_found": 8,
+          "shots_extra": 4,
+          "pots_right": 6,
+          "shot_start_offset_s": 0.03
+        },
+        "us-open-3min": {
+          "keyframes": 39,
+          "balls": 273,
+          "score": 0.952,
+          "found": 0.985,
+          "real": 0.982,
+          "named_right": 0.866,
+          "named_wrong": 0.007,
+          "ids_per_ball": 1.24,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.13,
+          "paused": 0.013,
+          "off_play": {
+            "closeup": 0.092,
+            "crowd": 0.0,
+            "graphic": 0.008,
+            "replay": 0.423
+          },
+          "track_ids": 47,
+          "tracks_created": 83,
+          "shots": 6,
+          "processing_fps": 27.3
+        }
+      }
+    },
+    {
+      "id": "2026-09-29T14:21:58+07:00",
+      "commit": "7b8d236",
+      "dirty": true,
+      "note": "29 Sep afternoon: balls hanging in a pocket's jaws found (ball model >= 0.98 inside the pocket disc); a ball that vanishes in a pocket's mouth is potted there; pots dated to the last sighting; a contact with a ball at rest held until it moves (jump shots); events just before a late shot join it; model_stickiness 0.4 -> 0.8",
+      "clips": {
+        "albin_fedor": {
+          "written": [
+            "results\\albin_fedor_tracks.csv",
+            "results\\albin_fedor_run.json",
+            "results\\albin_fedor_tracked.mp4",
+            "results\\preview_albin_fedor.png"
+          ],
+          "balls_visible": 7,
+          "real_pots": 2,
+          "detectable_pots": 2,
+          "frames": 751,
+          "frames_repeated": 412,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.637,
+            "source_fps": 30.0,
+            "moving_repeats": 26,
+            "evidence_frames": 29,
+            "skipped_source_frames": 7
+          },
+          "frames_view_lost": 26,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 3,
+            "cushion": 5,
+            "pot": 2,
+            "collision": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- 1 cushion -- potted the 4 -- 1.2s",
+            "shot 2: CUE struck -- hit the 5 first -- 1 cushion -- potted the 5 -- 3.3s"
+          ],
+          "processing_fps": 23.63,
+          "tracks_reported": 7,
+          "short_tracks": [],
+          "peak_speed_in_s": 423.9,
+          "speed_jitter_in_s": {
+            "mean": 11.11,
+            "max": 277.3,
+            "samples": 155
+          },
+          "rest_jitter_in": {
+            "mean": 0.011,
+            "max": 2.63,
+            "samples": 3888
+          }
+        },
+        "fedor_jump": {
+          "written": [
+            "results\\fedor_jump_tracks.csv",
+            "results\\fedor_jump_run.json",
+            "results\\fedor_jump_tracked.mp4",
+            "results\\preview_fedor_jump.png"
+          ],
+          "balls_visible": 9,
+          "real_pots": 0,
+          "detectable_pots": 0,
+          "frames": 375,
+          "frames_repeated": 212,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.84,
+            "source_fps": 22.259,
+            "moving_repeats": 29,
+            "evidence_frames": 28,
+            "skipped_source_frames": 2
+          },
+          "frames_view_lost": 0,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "cushion": 4,
+            "ball_struck": 4,
+            "collision": 2
+          },
+          "shots": [
+            "shot 1: CUE struck -- 3 cushions -- 2 contacts -- nothing potted -- 5.6s"
+          ],
+          "processing_fps": 18.72,
+          "tracks_reported": 9,
+          "short_tracks": [],
+          "peak_speed_in_s": 173.7,
+          "speed_jitter_in_s": {
+            "mean": 3.9,
+            "max": 88.6,
+            "samples": 284
+          },
+          "rest_jitter_in": {
+            "mean": 0.014,
+            "max": 0.427,
+            "samples": 2664
+          }
+        },
+        "fedor_shot": {
+          "written": [
+            "results\\fedor_shot_tracks.csv",
+            "results\\fedor_shot_run.json",
+            "results\\fedor_shot_tracked.mp4",
+            "results\\preview_fedor_shot.png"
+          ],
+          "balls_visible": 8,
+          "real_pots": 1,
+          "detectable_pots": 1,
+          "frames": 546,
+          "frames_repeated": 279,
+          "clock": {
+            "retimed": true,
+            "container_fps": 37.729,
+            "source_fps": 33.583,
+            "moving_repeats": 59,
+            "evidence_frames": 37,
+            "skipped_source_frames": 36
+          },
+          "frames_view_lost": 23,
+          "recalibrations": 0,
+          "tracks_created": 10,
+          "events": {
+            "ball_struck": 2,
+            "collision": 1,
+            "cushion": 4,
+            "pot": 1
+          },
+          "shots": [
+            "shot 1: CUE struck -- hit the 2 first -- 4 cushions -- potted the 2 -- 8.5s"
+          ],
+          "processing_fps": 19.01,
+          "tracks_reported": 8,
+          "short_tracks": [],
+          "peak_speed_in_s": 85.4,
+          "speed_jitter_in_s": {
+            "mean": 3.04,
+            "max": 35.8,
+            "samples": 238
+          },
+          "rest_jitter_in": {
+            "mean": 0.007,
+            "max": 0.356,
+            "samples": 3401
+          }
+        }
+      },
+      "open_issues": [
+        "dissolves still draw ghost balls and open 4 extra shots on the Premier League minute",
+        "replays tracked as play",
+        "Premier League side view (both table ends cut off) not tracked",
+        "ball model reads the tripod's dark-blue 2 as black and the US Open's light-blue 2 as green"
+      ],
+      "ground_truth": {
+        "recall": 0.9129,
+        "precision": 0.9993,
+        "mota": 0.9102,
+        "id_switches": 3,
+        "position_error_in_median": 0.312,
+        "speed_error_median_relative": 0.0288,
+        "speed_error_p95_in_s": 11.97,
+        "events_found": {
+          "collision": "5/6 (+1 false)",
+          "cushion": "22/23 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": false,
+          "container_fps": 30.0,
+          "source_fps": 30.0,
+          "moving_repeats": 0,
+          "evidence_frames": 0,
+          "skipped_source_frames": 0
+        }
+      },
+      "ground_truth_retimed": {
+        "recall": 0.9284,
+        "precision": 0.9931,
+        "mota": 0.9167,
+        "id_switches": 10,
+        "position_error_in_median": 0.227,
+        "speed_error_median_relative": 0.0547,
+        "speed_error_p95_in_s": 20.41,
+        "events_found": {
+          "collision": "3/5 (+5 false)",
+          "cushion": "19/21 (+1 false)",
+          "pot": "0/0 (+0 false)"
+        },
+        "clock": {
+          "retimed": true,
+          "container_fps": 37.5,
+          "source_fps": 25.0,
+          "moving_repeats": 82,
+          "evidence_frames": 98,
+          "skipped_source_frames": 13
+        }
+      },
+      "real": {
+        "county-8ball": {
+          "keyframes": 16,
+          "balls": 66,
+          "score": 0.924,
+          "found": 1.0,
+          "real": 0.957,
+          "named_right": 0.591,
+          "named_wrong": 0.121,
+          "ids_per_ball": 1.4,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.19,
+          "paused": 0.023,
+          "off_play": {},
+          "track_ids": 14,
+          "tracks_created": 32,
+          "shots": 3,
+          "processing_fps": 39.17,
+          "shots_marked": 3,
+          "shots_found": 3,
+          "shots_extra": 0,
+          "pots_right": 3,
+          "shot_start_offset_s": 0.07
+        },
+        "demo-table-cam": {
+          "keyframes": 12,
+          "balls": 96,
+          "score": 1.0,
+          "found": 1.0,
+          "real": 1.0,
+          "named_right": 0.979,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.0,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.0,
+          "paused": 0.005,
+          "off_play": {},
+          "track_ids": 10,
+          "tracks_created": 15,
+          "shots": 2,
+          "processing_fps": 26.76,
+          "shots_marked": 2,
+          "shots_found": 2,
+          "shots_extra": 0,
+          "pots_right": 2,
+          "shot_start_offset_s": -0.13
+        },
+        "premier-league": {
+          "keyframes": 22,
+          "balls": 187,
+          "score": 0.797,
+          "found": 0.877,
+          "real": 0.959,
+          "named_right": 0.909,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.8,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.32,
+          "paused": 0.089,
+          "off_play": {
+            "graphic": 0.995
+          },
+          "track_ids": 33,
+          "tracks_created": 42,
+          "shots": 12,
+          "processing_fps": 32.12,
+          "shots_marked": 8,
+          "shots_found": 8,
+          "shots_extra": 4,
+          "pots_right": 7,
+          "shot_start_offset_s": 0.03
+        },
+        "us-open-3min": {
+          "keyframes": 39,
+          "balls": 273,
+          "score": 0.952,
+          "found": 0.985,
+          "real": 0.982,
+          "named_right": 0.874,
+          "named_wrong": 0.0,
+          "ids_per_ball": 1.24,
+          "swaps": 0,
+          "phantoms_per_keyframe": 0.13,
+          "paused": 0.013,
+          "off_play": {
+            "closeup": 0.092,
+            "crowd": 0.0,
+            "graphic": 0.008,
+            "replay": 0.423
+          },
+          "track_ids": 47,
+          "tracks_created": 83,
+          "shots": 6,
+          "processing_fps": 36.29
+        }
+      }
     }
   ],
   "clips": {
@@ -2458,8 +3048,8 @@
       "video": "albin_fedor.mp4",
       "balls_visible": 7,
       "real_pots": 2,
-      "detectable_pots": 1,
-      "notes": "Two pots, checked frame by frame. (1) The pink 4-ball sits in the near-left pocket jaws from the start and the cue ball knocks it in at about frame 155; it is inside the pocket-exclusion zone, so it is never tracked and this pot cannot be reported. (2) The purple 5-ball is struck at about frame 555 and drops into the far-left corner at frame 566-568; this one is fully visible and should be reported. The rack graphic lags both: it drops the 4 somewhere between frames 200 and 400, and only starts fading the 5 at frame 750. (Until 23 Sep 2026 this entry said the clip had one pot, untrackable, so any reported pot was a phantom -- wrong: the graphic had been read without checking the table.)"
+      "detectable_pots": 2,
+      "notes": "Two pots, checked frame by frame. (1) The pink 4-ball sits in the near-left pocket jaws from the start and the cue ball, jumped over the 6, knocks it in at about frame 155; it is inside the pocket-exclusion zone, and until 29 Sep 2026 was never tracked (now found there with the ball model, detect._balls_in_pockets). (2) The purple 5-ball is struck at about frame 555 and drops into the far-left corner at frame 566-568; this one is fully visible and should be reported. The rack graphic lags both: it drops the 4 somewhere between frames 200 and 400, and only starts fading the 5 at frame 750. (Until 23 Sep 2026 this entry said the clip had one pot, untrackable, so any reported pot was a phantom -- wrong: the graphic had been read without checking the table.)"
     },
     "fedor_jump": {
       "video": "fedor_jump.mp4",

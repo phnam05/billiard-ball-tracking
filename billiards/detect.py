@@ -281,6 +281,23 @@ _DARK_CHROMA = 16.0
 #: ball's colour from: see ``Detection.colour_ok``.
 _CLEAN_CLUSTER_SIZE = 3
 
+#: In a pocket's blanked-out disc (``BallDetector._balls_in_pockets``),
+#: pixels darker than this fraction of the cloth's brightness are the hole;
+#: what else is not cloth is a candidate if it covers this range of a
+#: ball's area.
+_POCKET_DARK_FRACTION = 0.4
+_POCKET_MIN_AREA = 0.3
+_POCKET_MAX_AREA = 2.5
+
+
+def _near_any(centre: Tuple[float, float], detections: Sequence["Detection"]) -> bool:
+    """Whether ``centre`` is within 1.2 radii of any of ``detections``."""
+    return any(
+        (centre[0] - d.centre_image[0]) ** 2 + (centre[1] - d.centre_image[1]) ** 2
+        < (1.2 * d.radius_px) ** 2
+        for d in detections
+    )
+
 
 def sample_signature(
     lab_image: np.ndarray,
@@ -513,6 +530,11 @@ class BallDetector:
         self.ballnet = ballnet.load() if cfg.detector.ball_model != "off" else None
         #: Centres the cluster splitter found and then judged not to be balls.
         self._split_rejected: List[Tuple[float, float]] = []
+        #: Each pocket's blanked-out disc, in the image, and the bed out to
+        #: the cushion noses: where a ball hanging in a pocket's jaws is
+        #: looked for (``_balls_in_pockets``).
+        self._pocket_zones: List[np.ndarray] = []
+        self._nose_bed: Optional[np.ndarray] = None
 
     # -- masks -------------------------------------------------------------
 
@@ -544,6 +566,7 @@ class BallDetector:
                 self.cfg.detector.pocket_exclusion_ball_diameters
                 * self.table.ball_diameter_in
             )
+            self._pocket_zones = []
             if radius_in > 0:
                 pockets = self.table.pockets_table()
                 # Draw the pocket as the *projection* of a circle on the cloth,
@@ -563,7 +586,11 @@ class BallDetector:
                     if not np.all(np.isfinite(poly)):
                         continue
                     cv2.fillPoly(mask, [poly.astype(np.int32)], 0)
+                    self._pocket_zones.append(poly.astype(np.int32))
             self._bed_mask = mask
+            # Out to the cushion noses, where a ball hanging in the jaws has
+            # its centre (see ``_balls_in_pockets``).
+            self._nose_bed = self.table.bed_mask(shape, margin_in=0.0, raised_margin_in=0.0)
             self._plain_bed = cv2.bitwise_and(plain, mask) if plain is not mask else None
             self._bed_shape = shape[:2]
             # The bed pulled in by a couple of pixels: a blob with any pixel
@@ -748,6 +775,9 @@ class BallDetector:
 
         if self.ballnet is not None:
             detections = self._ask_model(frame, lab, detections, second_look, rejected)
+            found = self._balls_in_pockets(frame, hsv, lab, cloth_mask, detections)
+            rejected["in_pockets"] = len(found)
+            detections.extend(found)
 
         if self._plain_bed is not None:
             for det in detections:
@@ -832,6 +862,75 @@ class BallDetector:
         rejected["model"] = dropped
         rejected["rescued"] = rescued
         return kept
+
+    def _balls_in_pockets(
+        self,
+        frame: np.ndarray,
+        hsv: np.ndarray,
+        lab: np.ndarray,
+        cloth_mask: np.ndarray,
+        detections: Sequence[Detection],
+    ) -> List[Detection]:
+        """Balls hanging in a pocket's jaws, which ``bed_mask`` blanks out.
+
+        The disc round each pocket is left out of the search because the
+        hole is a dark, ball-sized blob that never moves.  A ball hanging on
+        the lip is inside that disc too: on ``albin_fedor`` the 4 sat half an
+        inch from the corner pocket's centre, was jumped on and potted, and was
+        never seen.  So inside each disc, out to the cushion noses, what is
+        neither cloth nor as dark as the hole is a candidate, and it is kept
+        only if the ball model is sure it is a ball: it gives the six empty
+        pockets of that clip 0.000-0.016 and the 4 1.000.  A black ball in the
+        jaws stays unseen: it is as dark as the hole.
+        """
+        cfg = self.cfg.detector
+        if self._nose_bed is None or not self._pocket_zones or cfg.pocket_ball_p >= 1.0:
+            return []
+        h, w = cloth_mask.shape[:2]
+        dark = _POCKET_DARK_FRACTION * float(self.cloth.val)
+        candidates: List[Tuple[Tuple[float, float], float, float]] = []
+        for poly in self._pocket_zones:
+            x, y, bw, bh = cv2.boundingRect(poly)
+            x0, y0, x1, y1 = max(0, x), max(0, y), min(w, x + bw), min(h, y + bh)
+            if x1 - x0 < 3 or y1 - y0 < 3:
+                continue
+            zone = np.zeros((y1 - y0, x1 - x0), np.uint8)
+            cv2.fillPoly(zone, [poly - np.array([x0, y0], dtype=np.int32)], 255)
+            zone &= self._nose_bed[y0:y1, x0:x1]
+            zone[(cloth_mask[y0:y1, x0:x1] > 0) | (hsv[y0:y1, x0:x1, 2] < dark)] = 0
+            num, labels, stats, _ = cv2.connectedComponentsWithStats(zone, 8)
+            for i in range(1, num):
+                comp = (labels == i).astype(np.uint8)
+                centre = self._refine_centre(comp * 255, offset=(x0, y0))
+                r = self.table.expected_ball_radius_px(centre)
+                ratio = float(stats[i, cv2.CC_STAT_AREA]) / (np.pi * r * r) if r > 0.8 else 0.0
+                if not _POCKET_MIN_AREA <= ratio <= _POCKET_MAX_AREA:
+                    continue
+                # The middle of what is seen of it, and the middle of the
+                # biggest circle inside it: the jaws hide part of the ball.
+                dist = cv2.distanceTransform(comp, cv2.DIST_L2, 3)
+                py, px = np.unravel_index(int(np.argmax(dist)), dist.shape)
+                for c in (centre, (float(x0 + px), float(y0 + py))):
+                    if not _near_any(c, detections):
+                        candidates.append((c, r, ratio))
+        if not candidates:
+            return []
+        kind, family, stripe = self.ballnet.score(
+            frame, [c for c, _, _ in candidates], [r for _, r, _ in candidates]
+        )
+        found: List[Detection] = []
+        for i in np.argsort(kind[:, 0]):
+            p = float(1.0 - kind[i, 0])
+            c, r, ratio = candidates[i]
+            if p < cfg.pocket_ball_p or _near_any(c, found):
+                continue
+            det = self._make_detection(c, r, ratio, 1.0, lab, from_cluster=False, check_rim=False)
+            if det is None:
+                continue
+            det.ball_p, det.cue_p = p, float(kind[i, 1])
+            det.family_p, det.stripe_p = family[i], float(stripe[i])
+            found.append(det)
+        return found
 
     # -- helpers -----------------------------------------------------------
 

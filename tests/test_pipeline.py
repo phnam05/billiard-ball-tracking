@@ -328,6 +328,7 @@ class _FakeTrack:
         self.kf = BallKalman((50.0, 25.0))
         self._speed = 0.0
         self.age = 100
+        self.trail = []
         self.velocity = np.zeros(2)
         self.time_since_update = 0
 

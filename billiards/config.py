@@ -362,8 +362,13 @@ class DetectorConfig:
     search_raised_bed: bool = True
     #: ...where a detection with more than this fraction of its disc past the
     #: bed's edge can follow a ball already being tracked, but never start a
-    #: track of its own.
+    #: track of its own...
     raised_band_outside_fraction: float = 0.55
+    #: ...unless the ball model is at least this sure it is a ball.  A ball
+    #: frozen against the far cushion from the first frame never rolled there
+    #: in view: the tripod answer key's 1 was missed on 12 of its 16
+    #: keyframes, though the model gave it 0.99999.
+    raised_band_start_p: float = 0.98
 
     #: When splitting a cluster, a peak of the distance transform is only a ball
     #: if its height is close to the ball radius.  A wider object (an arm, a
@@ -427,6 +432,11 @@ class DetectorConfig:
     #: A proposal the model gives less than this chance of being a ball is
     #: dropped: a chalk cube, a knuckle, a pocket's shadow.
     ball_model_reject: float = 0.3
+    #: Inside the disc blanked out round each pocket, something that is not
+    #: cloth and not as dark as the hole is a ball hanging in the jaws if the
+    #: model is at least this sure (``BallDetector._balls_in_pockets``);
+    #: 1 turns the search off.
+    pocket_ball_p: float = 0.98
     #: One the size-and-shape tests turned down -- a ball welded to its
     #: shadow, a ball whose rim runs into a cushion -- is kept if the model
     #: is at least this sure it is a ball.
@@ -633,9 +643,11 @@ class BallsConfig:
     #: With the ball model: a ball whose best available number the model
     #: puts below exp(-model_max_cost), about 0.1, stays unnumbered; and
     #: ``model_stickiness`` plays the part of ``stickiness``, in the same
-    #: units (minus log probability).
+    #: units (minus log probability).  0.8 since 29 Sep 2026: at 0.4 the
+    #: US Open's 7, which the model reads as part yellow, part orange, part
+    #: maroon, turned into the 1 for 8 s and back.
     model_max_cost: float = 2.3
-    model_stickiness: float = 0.4
+    model_stickiness: float = 0.8
 
 
 @dataclass

@@ -10,7 +10,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 🧭 Where the project stands
 
-*Last updated: **28 Sep 2026***
+*Last updated: **29 Sep 2026***
 
 | Area | Status | Notes |
 |---|:---:|---|
@@ -18,18 +18,19 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Live tracking | ✅ | Camera, stream, or a video replayed live; tested on replays only |
 | YouTube links | ✅ | Paste a link, pick the minutes, see how long first; tried on one YouTube final |
 | Finding the table | ✅ | 11 real venues, 7 cloths, 3 floors, 4 cameras; grey cloth found by itself |
-| Real footage | ✅ | Answer keys for 4 real clips: US Open 0.94, Premier League 0.79, 2 CCTV-style 1.00 / 0.74 (score like MOTA) |
-| Broadcast cuts | ⚠️ | Ids kept across cuts: 1.35–1.9 ids per ball on the keys; replays still tracked as play |
-| Finding the balls | ✅ | Learned ball check drops chalk, hands, shadows; far cushion searched by default; 82–100% found on the keys |
-| Ball numbers 1–15 | ⚠️ | 84–91% right on broadcasts, 50–88% on CCTV-style; the US Open's light-blue 2 unnamed |
-| Cushion contacts | ✅ | 22 of 23 on synthetic, 1 false; `fedor_jump` 3 of 4 |
-| Pots | ⚠️ | `albin_fedor`'s 5 now found; broadcasts: false pots round dissolves |
+| Real footage | ✅ | Answer keys for 4 real clips: US Open 0.95, Premier League 0.80, 2 CCTV-style 1.00 / 0.92 (score like MOTA) |
+| Broadcast cuts | ⚠️ | Ids kept across cuts: 1.24–1.8 ids per ball on the keys; replays tracked as play; dissolves draw ghosts |
+| Finding the balls | ✅ | Learned ball check drops chalk, hands, shadows; balls frozen on the far cushion or hanging in a pocket's jaws found; 88–100% found on the keys |
+| Ball numbers 1–15 | ⚠️ | 87–91% right on broadcasts (none wrong), 59–98% on CCTV-style; light-blue and dark-blue 2s misread |
+| Shots | ⚠️ | 13 of 13 marked shots found on 3 real clips, 12 with the right pots; 4 extra, in dissolves; jump shots no longer "hit" the ball jumped |
+| Cushion contacts | ✅ | 22 of 23 on synthetic, 1 false; `fedor_jump` 4 reported, as in the video (its shot line says 3) |
+| Pots | ⚠️ | `albin_fedor`'s 4 and 5 found; CCTV-style keys 5 of 5; Premier League 3 of 3 found, the 4 unnamed (#17); 1 false (a scratch) |
 | Collisions | ⚠️ | 5 of 6 on synthetic, 2 false |
 | Ball speeds | ✅ | 2.9% median error (5.5% screen-recorded) |
-| Tests | ✅ | 167 pass |
-| On GitHub | ✅ | Everything pushed on 28 Sep evening, the answer keys and the ball model included |
+| Tests | ✅ | 183 pass |
+| On GitHub | ⚠️ | Up to `7b8d236` (28 Sep evening); 29 Sep's work not committed yet |
 
-**Key numbers** (`reports/run-log.json`, 28 Sep 17:07)
+**Key numbers** (`reports/run-log.json`, 29 Sep 14:21)
 
 | | Constant-rate | Screen-recorded style |
 |---|---|---|
@@ -37,12 +38,12 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Precision / recall | 0.999 / 0.913 | 0.993 / 0.928 |
 | Speed error | 2.9% | 5.5% |
 
-| Answer key | Score | Found | Named right / wrong |
-|---|---|---|---|
-| US Open 3 min | 0.94 | 98% | 84% / 1% |
-| Premier League minute | 0.79 | 88% | 91% / 0% |
-| Ceiling camera (CCTV-style) | 1.00 | 100% | 88% / 12% |
-| Tripod, 8-ball (CCTV-style) | 0.74 | 82% | 50% / 18% |
+| Answer key | Score | Found | Named right / wrong | Shots found (extra) |
+|---|---|---|---|---|
+| US Open 3 min | 0.95 | 98% | 87% / 0% | not marked |
+| Premier League minute | 0.80 | 88% | 91% / 0% | 8 of 8 (+4) |
+| Ceiling camera (CCTV-style) | 1.00 | 100% | 98% / 0% | 2 of 2 |
+| Tripod, 8-ball (CCTV-style) | 0.92 | 100% | 59% / 12% | 3 of 3 |
 
 ---
 
@@ -57,6 +58,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
 | **28 Sep 2026** | YouTube links; other venues; balls kept through cuts; answer keys; a learned ball check | Paste a link, track the minutes picked; the table found at 11 venues; `python main.py` opens the app; scored on 4 real clips: 0.74–1.00 (the US Open 0.35 → 0.94) |
+| **29 Sep 2026** | Far-cushion balls; numbers held after a pot; the shot log measured and fixed; your two reports (a ball in the jaws, US Open labels) | Real clips 0.80–1.00; all 13 marked shots found (7 before); synthetic unchanged |
 
 ---
 
@@ -256,6 +258,42 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 28 | 2nd rack unnamed; set flipped; orange 7 | Potted numbers freed; set remembered ~40 s; brown ≈ orange; caps count | Named right: US Open 69 → 84%, Premier League 76 → 91% |
 | 29 | Far-cushion balls unseen | Far cushion searched by default | Tripod clip 0.59 → 0.74; synthetic 0.896 → 0.910 |
 | 30 | Checks | 167 tests; `run_report --ground-truth --real` 17:07; 17 robustness variants; venues | Synthetic 0.910 / 0.917 (0.844 / 0.816); `albin_fedor`'s 5 potted; ⚠️ replays tracked, shots merge on broadcasts, ~10% slower |
+
+---
+
+## 📅 29 Sep 2026: The far cushion, numbers after a pot, the shot log, a ball in the jaws
+
+*Work computer, scratch venv. Carried on from 28 Sep evening ("the whole app's tracking better"). The laptop slept overnight mid-run (a 3-minute test run took 8.5 h). Not committed.*
+
+### State at the end of the day
+
+| | |
+|---|---|
+| ✅ Answer keys | US Open 0.95, Premier League 0.80, ceiling camera 1.00, tripod 0.92 (0.94 / 0.79 / 1.00 / 0.74 at the start) |
+| ✅ Shot log | Now scored: 13 of 13 marked shots found (7 at the start), 12 with the right pots (5); still 4 extra |
+| ✅ Numbers | Named wrong: CCTV-style 12 → 0%, 18 → 12%; US Open 1 → 0% |
+| ✅ Your two reports | `albin_fedor`'s hanging 4 found and potted; US Open 7 no longer becomes the 1 |
+| ✅ Synthetic | Unchanged: MOTA 0.910 / 0.917, speed error 2.9% / 5.5%; robustness 10 same, 2 up, 5 down ≤ 0.002 |
+| ⚠️ Open | Dissolves: 4 extra PL shots, ghost balls · replays tracked · side view untracked · model reads dark-blue 2 as black, light-blue 2 as green |
+| ✅ Tests | 183 pass (16 new) |
+| ⚠️ Not committed | Waiting for your OK |
+
+| # | 🧩 Problem | 🔧 Fix | 📈 Result |
+|---|---|---|---|
+| 1 | Where the keys still lose points | 🔍 Baseline re-run; 4 cached Vietnamese clips looked at (installers, building work, a phone filming a CCTV screen: unusable) | 0.94 / 0.79 / 1.00 / 0.74, as last night |
+| 2 | Tripod's 1, frozen on the far cushion, missed on 12 of 16 keyframes | Past the far edge a track may start if the ball model is ≥ 0.98 sure | Found 82 → 100% |
+| 3 | Cue ball against that 1: a second track on it | A detection within ½ ball of a ball at rest is that ball (❌ rolling balls too: tipped the screen-recorded clip's clock 25 → 32.5 fps, speed error 5.5 → 28.7%) | Tripod 0.86 → 0.92; US Open 0.94 → 0.95 |
+| 4 | Far 1 named 9 once the 9 was potted; ceiling camera's 7 named 1 | A potted number is held until a new rack (more balls than can be left) | Named wrong 27 → 12%, 12 → 0%; US Open's 2nd rack still named |
+| 5 | The shot log was never measured | `real_eval.py` scores shots: found within 1.5 s, extra, pots right | PL 3 of 7 found |
+| 6 | PL shots merged; a rack opened shots before the break | At rest 0.4 s of play, not of file frames; trembling ≠ moving; a shot where nothing went 2 ball widths dropped | PL 3 → 7 of 7; ceiling 3 extra → 0 |
+| 7 | Tripod's last shot (the 2 potted) missed | A ball at rest seen a ball width away within 0.15 s was struck | Tripod 2 → 3 of 3 |
+| 8 | PL dissolves "struck" 3–8 balls; a phantom "potted the 9" | Balls far apart setting off together, nothing moving = the picture (❌ 3 picture tests for a dissolve: CCTV noise and walkers look alike) | PL 0.797 → 0.813; 4 extra shots left, all in dissolves |
+| 9 | PL "extra" shot at 0.5 s | 🔍 Balls already rolling at frame 0 → added to the key; shots paired by one assignment | PL 8 of 8, 6 with the right pots |
+| 10 | Checks | 178 tests pass (2 app tests had timed out while the laptop slept); `run_report --ground-truth --real` 10:08; robustness 10:26 | Synthetic to the digit; `albin_fedor` pots the 5; `fedor_jump` 4 cushions (3 on its shot line) |
+| 11 | You: `albin_fedor`'s 4, hanging in the corner jaws and jumped onto, never seen | Inside each pocket's blanked disc, not cloth and not dark = a ball if the model is ≥ 0.98 sure; a ball vanishing there is potted there; pots dated to the last sighting (❌ first try: balls followed into the jaws coasted out along the rail, a pot lost) | "potted the 4"; ceiling camera and tripod unchanged |
+| 12 | "Hit the 6 first" on that jump shot | A contact with a ball at rest counts once that ball moves (or drops) | Gone; false contacts down on 12 of 17 simulated variants |
+| 13 | You: US Open balls labelled wrongly at times | 🔍 The 7 turned into the 1 for 8 s (the model reads it part yellow); a number harder to take away (❌ longer model average: tripod named worse) | Named wrong 1 → 0%; label flicker 0.9 → 0% |
+| 14 | Checks | 183 tests; `run_report --ground-truth --real` 14:21; robustness 14:34 (MOTA as at 10:26, TV set +0.001); app restarted, your 4 videos re-tracked | PL 0.813 → 0.797 (2 phantoms after dissolves), pots right 6 → 7 of 8; synthetic unchanged |
 
 ---
 

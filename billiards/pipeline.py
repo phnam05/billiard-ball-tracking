@@ -319,11 +319,12 @@ class TrackingPipeline:
         # a contact found on this frame: one found from the path is a couple of
         # frames old, and the filters have long since followed the ball round.
         by_id = {t.track_id: t for t in tracks}
-        for e in events:
-            if e.type is EventType.COLLISION and e.frame == frame_index:
-                for tid in e.track_ids:
-                    if tid in by_id:
-                        by_id[tid].kf.apply_impulse()
+        touching = list(self.event_detector.contacts_now) + [
+            e.track_ids for e in events if e.type is EventType.COLLISION and e.frame == frame_index
+        ]
+        for tid in {tid for pair in touching for tid in pair}:
+            if tid in by_id:
+                by_id[tid].kf.apply_impulse()
 
         self.shots.step(tracks, events, frame_index, t_s)
 
@@ -343,16 +344,19 @@ class TrackingPipeline:
         A track that dies near a pocket waits in the tracker's limbo first
         (``TrackerConfig.revive_window_s``), because a ball in the jaws or
         behind the player's hand dies there too and comes back.  The pot is
-        dated to the frame the ball vanished, not the frame it was confirmed.
+        dated to the frame the ball vanished, not the frame it was confirmed:
+        its last sighting, since a ball at rest by a pocket coasts for a
+        while before its track is given up (``albin_fedor``'s 4, seen last at
+        frame 155 and given up at 223, after its shot had closed at 178).
         """
         pots: List[Event] = []
         while self._finished_seen < len(self.tracker.finished):
             dead = self.tracker.finished[self._finished_seen]
             self._finished_seen += 1
             if dead.death_reason == "potted" and dead.death_frame is not None:
-                pot = self.event_detector.note_pot(
-                    dead, dead.death_frame, dead.death_frame / self.fps
-                )
+                seen = [s.frame for s in dead.trail if s.observed]
+                frame = min(dead.death_frame, seen[-1] + 1) if seen else dead.death_frame
+                pot = self.event_detector.note_pot(dead, frame, frame / self.fps)
                 pots.append(pot)
                 self.all_events.append(pot)
         return pots

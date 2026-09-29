@@ -22,6 +22,10 @@ from .config import Config
 from .events import Event, EventType
 from .track import Track, TrackState
 
+#: An event this many seconds before a shot opened, after the one before it
+#: ended, belongs to it (``ShotSegmenter._shot_just_after``).
+_EARLY_EVENT_S = 1.5
+
 
 def ball_name(label: str) -> str:
     """``"3"`` -> ``"the 3"``, ``"CUE"`` -> ``"the cue ball"``; a tracker id
@@ -116,11 +120,30 @@ class ShotSegmenter:
         self.fps = max(float(fps), 1.0)
         self.shots: List[Shot] = []
         self._current: Optional[Shot] = None
-        self._still_frames = 0
+        #: Scene time since which no ball has been moving, while a shot is on.
+        self._still_since: Optional[float] = None
         self._last_pos: Dict[int, np.ndarray] = {}
+        #: Where each ball was when the current shot began (or when it was
+        #: first seen in it): a shot in which none went anywhere is dropped.
+        self._start_pos: Dict[int, np.ndarray] = {}
         #: Balls must be at rest this long before a shot is considered over,
-        #: so a ball creeping to a stop does not end it early.
-        self._settle_frames = max(3, int(round(0.4 * self.fps)))
+        #: so a ball creeping to a stop does not end it early.  In seconds,
+        #: not frames: only frames that change the picture are measured, and
+        #: on a broadcast that repeats every other frame 0.4 s of frames at
+        #: the file's rate was 0.8 s of play.
+        self._settle_s = 0.4
+        #: A ball is moving if it is faster than the stationary speed *and*
+        #: has gone ``_min_travel_diameters`` ball widths in the last
+        #: ``_settle_s``; and a shot in which no ball got
+        #: ``_min_shot_diameters`` from where it started, and nothing was
+        #: potted, is not a shot.  A ball in a rack, split out of the cluster a pixel or two off each frame, can
+        #: read 5-40 in/s without going anywhere: on the ceiling-camera answer
+        #: key the racked balls opened two shots before the break and held a
+        #: third open until it, which was reported 2 s early.
+        self._min_travel_diameters = 1.0
+        self._min_shot_diameters = 2.0
+        #: The farthest any ball has been from where the current shot found it.
+        self._excursion = 0.0
         #: Display label of any track id, dead or alive; set by the pipeline.
         self.label_of: Callable[[int], str] = lambda tid: f"#{tid}"
 
@@ -132,7 +155,7 @@ class ShotSegmenter:
         """Returns a shot if one completed on this frame."""
         confirmed = [t for t in tracks if t.state is TrackState.CONFIRMED]
         threshold = self.cfg.tracker.stationary_speed_in_s
-        moving = [t for t in confirmed if t.speed > threshold]
+        moving = [t for t in confirmed if t.speed > threshold and self._went_somewhere(t, t_s)]
 
         completed: Optional[Shot] = None
 
@@ -142,7 +165,7 @@ class ShotSegmenter:
         # they happened in.
         late = [e for e in events if self._is_late(e)]
         for e in late:
-            shot = self._shot_at(e.frame)
+            shot = self._shot_at(e.frame) or self._shot_just_after(e.frame)
             if shot is not None:
                 self._count(shot, e, {})
         events = [e for e in events if e not in late]
@@ -158,24 +181,46 @@ class ShotSegmenter:
                     opener_track_id=None if opener is None else opener.track_id,
                     opener_label="?" if opener is None else opener.label,
                 )
-                self._still_frames = 0
+                self._still_since = None
                 self._last_pos = {t.track_id: t.kf.position.copy() for t in confirmed}
+                self._start_pos = {tid: pos.copy() for tid, pos in self._last_pos.items()}
+                self._excursion = 0.0
         else:
             self._accumulate(confirmed, events)
 
             if moving:
-                self._still_frames = 0
-            else:
-                self._still_frames += 1
-                if self._still_frames >= self._settle_frames:
-                    self._current.end_frame = frame
-                    self._current.end_t_s = t_s
-                    self.shots.append(self._current)
-                    completed = self._current
-                    self._current = None
-                    self._last_pos.clear()
+                self._still_since = None
+            elif self._still_since is None:
+                self._still_since = t_s
+            elif t_s - self._still_since >= self._settle_s - 1e-9:
+                shot = self._current
+                shot.end_frame = frame
+                shot.end_t_s = t_s
+                if shot.potted or self._excursion >= self._min_shot_diameters * self._ball_d:
+                    self.shots.append(shot)
+                    completed = shot
+                self._current = None
+                self._last_pos.clear()
+                self._start_pos.clear()
 
         return completed
+
+    @property
+    def _ball_d(self) -> float:
+        return float(self.cfg.table.ball_diameter_in)
+
+    def _went_somewhere(self, track: Track, t_s: float) -> bool:
+        """Whether the ball has gone ``_min_travel_diameters`` in the last
+        ``_settle_s``, rather than trembling where it is."""
+        trail = track.trail
+        if len(trail) < 2:
+            return True
+        now = np.asarray(trail[-1].table_xy)
+        for sample in reversed(trail):
+            then = sample.table_xy
+            if sample.t_s <= t_s - self._settle_s:
+                break
+        return float(np.linalg.norm(now - np.asarray(then))) >= self._min_travel_diameters * self._ball_d
 
     @staticmethod
     def _pick_opener(
@@ -204,6 +249,8 @@ class ShotSegmenter:
 
         for track in confirmed:
             pos = track.kf.position
+            start = self._start_pos.setdefault(track.track_id, pos.copy())
+            self._excursion = max(self._excursion, float(np.linalg.norm(pos - start)))
             previous = self._last_pos.get(track.track_id)
             if previous is not None:
                 shot.travel_in[track.track_id] = shot.travel_in.get(
@@ -243,6 +290,30 @@ class ShotSegmenter:
         if self._current is not None:
             return e.frame < self._current.start_frame
         return bool(self.shots) and e.frame <= (self.shots[-1].end_frame or 0)
+
+    def _shot_just_after(self, frame: int) -> Optional[Shot]:
+        """The shot that opened just after ``frame``, if nothing came between.
+
+        A shot opens when a ball is seen struck, and a cue ball struck hard
+        from behind the player can be lost for its first second: on the
+        tripod answer key the shot that potted the 9 opened 1.5 s late, when
+        another ball moved, and the pot, dated to when the 9 vanished, fell
+        before it.  Such an event belongs to that shot, which began at the
+        latest when it happened.
+        """
+        shots = self.shots + ([self._current] if self._current else [])
+        for k, shot in enumerate(shots):
+            if shot.start_frame <= frame:
+                continue
+            if (shot.start_frame - frame) / self.fps > _EARLY_EVENT_S:
+                return None
+            before = shots[k - 1] if k else None
+            if before is not None and (before.end_frame is None or before.end_frame >= frame):
+                return None
+            shot.start_t_s -= (shot.start_frame - frame) / self.fps
+            shot.start_frame = frame
+            return shot
+        return None
 
     def _shot_at(self, frame: int) -> Optional[Shot]:
         for shot in reversed(self.shots + ([self._current] if self._current else [])):

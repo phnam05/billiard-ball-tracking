@@ -1410,3 +1410,192 @@ before).
   camera 10 → 15.
 * The keys were marked by eye, by Claude and helper agents; three of the four
   were not re-checked by a second marker.
+
+## 17. Fifth pass (29 Sep 2026): the far cushion, a potted ball's number, and shots
+
+The answer keys (§16.2) said where the points were still lost: the tripod
+clip missed one ball on 12 of its 16 keyframes; both CCTV-style clips named
+balls wrongly after a pot; and nothing measured the shot log, which on the
+Premier League minute reported 4 shots for 7.
+
+### 17.1 A ball frozen against the far cushion — `detector.raised_band_start_p`
+
+Since §16.8 the band past the bed's far edge is searched, but a detection
+there may only follow a ball already tracked, never start one: a hand on the
+far rail is there too. The tripod clip's yellow 1 sat against the far cushion
+from the first frame and never rolled there in view, so it was never tracked,
+though the ball model gave it 0.99999. A detection there may now start a
+track, and the track be confirmed, when the model is at least 0.98 sure it is
+a ball. Tripod clip: found 82% → 100%.
+
+### 17.2 Two balls cannot overlap — `MultiObjectTracker._overlap_matches`
+
+Then the cue ball rolled up against that 1. Split out of their shared blob a
+few pixels off, the 1's half sampled the cue ball and the shadow, came out 48
+apart in colour against a gate of 42, and started a second track on top of
+the first. A detection within half a ball of where a ball at rest, seen in
+the last two updates, is predicted is now that ball, whatever its colour, and
+its colour is not learned from. Tripod phantoms 0.44 → 0.19 a keyframe;
+US Open ids per ball 1.35 → 1.24.
+
+Done for rolling balls as well, it changed four matches on the
+screen-recorded synthetic break, and that tipped the break's source clock
+(`clock.py`) from 25 to 32.5 fps: speed error 5.5% → 28.7%. The clock's rate
+is known to be the weak half of it (see its docstring); this showed how
+little it takes to move it. Kept to balls at rest, the synthetic numbers are
+last night's to the digit.
+
+### 17.3 A potted ball's number, for the rest of its rack — `assign_numbers`
+
+§16.7 freed a potted ball's number at once whenever the ball model named the
+balls, because holding it for good left the US Open's second rack unnamed.
+Freed at once, the tripod clip's far yellow 1, which the model reads as a
+stripe (0.76-0.90), took the potted 9's number, and the ceiling camera's
+orange 7 took the 1's. A potted number is now held until a new rack, which
+shows itself by more balls on the table than can be left of this one (balls
+allowed + the cue ball − balls potted since the rack began). Named wrong:
+tripod 18% → 12%, ceiling camera 12% → 0%; the US Open's second rack is still
+named (84% → 87% right).
+
+### 17.4 Shots on real footage — `shots.py`, `events.py`, `real_eval.score_shots`
+
+`real_eval.py` now scores the shot log against each key's `shots` (the frame
+each is struck and the balls potted): **found** (a reported shot starting
+within 1.5 s of a marked one, paired by one assignment by time), **extra**,
+and **pots right**. The Premier League key gained a shot at frame 0: its cue
+ball and 1 are already rolling when the clip starts. Before today (key as now):
+tripod 2 of 3 found, ceiling 2 of 2 but 3 extra, Premier League 3 of 8 (1 pot
+right). What was wrong, in order of how much it cost:
+
+* **A shot ended after 0.4 s at rest counted in frames of the file**, but only
+  frames that change the picture are measured: on a broadcast that repeats
+  every other frame, 24 steps were 0.8 s of play, longer than the gap between
+  two of the Premier League's shots. Now 0.4 s of the clip's time.
+* **Balls trembling in place kept a shot open.** A racked ball, split out of
+  its cluster a pixel or two off each frame, reads 5-40 in/s without going
+  anywhere; on the ceiling camera the rack opened two shots before the break
+  and held a third open until it, so the break was reported 2 s early. A ball
+  now counts as moving only if it has also gone a ball's width in the last
+  0.4 s, and a shot in which no ball got two ball widths from where the shot
+  found it, and nothing was potted, is dropped.
+* **A strike between two sightings was missed.** The tripod's last shot:
+  the cue ball, hidden by the cue for a frame, jumped 69 px and was already
+  into the 2; its filtered speed read 22 in/s against the 24 that says
+  "struck". A ball at rest seen next more than a ball's width away, within
+  0.15 s, is now taken at that step's speed (`EventDetector._jump_speed`).
+* **A dissolve to another camera "struck" balls.** In each of the Premier
+  League's 0.5 s dissolves the picture changes under a table fitted to the
+  first camera, and three to eight balls at rest appear to set off at once.
+  One cue stroke sets one ball moving; two balls at rest, more than three
+  ball widths apart, setting off on the same frame with nothing else moving
+  are the picture moving (`EventDetector._picture_moved`): nothing is struck
+  and no contact counted. It removed a phantom "potted the 9"; Premier League
+  score 0.797 → 0.813 (fewer phantoms, 1.8 → 1.7 ids per ball).
+
+Now: tripod 3 of 3, all pots right; ceiling 2 of 2, none extra; Premier
+League 8 of 8, 6 pots right, 4 extra — each of the four starts in a dissolve,
+with one ball.
+
+Three ways of recognising a dissolve from the picture itself were tried and
+none kept: the correlation of successive frame differences (0.45-0.87 through
+every Premier League dissolve and 0.0 in its play, but 0.4 median in the
+tripod clip's play: people walking); how well the change over four frames is
+a multiple of the last frame's change, as a cross-fade's is (true in
+dissolves, and on a third of CCTV play frames: sensor noise, exposure); and
+how fast the band round the table turns to cloth (up to 0.35 in 0.3 s in a
+dissolve, 0.09 in US Open play, while many dissolve frames change by less).
+
+### 17.5 Measured
+
+`real_eval.py` (answer keys), `run_report.py`'s synthetic breaks and
+`robustness.py`:
+
+| Answer key: score / found / named right, wrong / ids per ball / shots found, extra, pots right | `7b8d236` (28 Sep evening) | now |
+|---|---|---|
+| US Open 3 min | 0.941 / 98% / 84, 1% / 1.35 / — | **0.952** / 98% / 87, 1% / 1.24 / — |
+| Premier League minute | 0.791 / 88% / 91, 0% / 1.9 / 3 of 8, +1, 1 | **0.813** / 88% / 91, 0% / 1.7 / **8 of 8, +4, 6** |
+| Ceiling camera, club | 1.000 / 100% / 88, 12% / 1.0 / 2 of 2, +3, 2 | **1.000** / 100% / **97, 0%** / 1.0 / 2 of 2, **+0**, 2 |
+| Tripod, amateur 8-ball | 0.742 / 82% / 50, 18% / 1.4 / 2 of 3, +0, 2 | **0.924** / **100%** / 58, 12% / 1.4 / **3 of 3**, +0, **3** |
+
+Synthetic breaks (`run_report.py`, 29 Sep 10:08): unchanged to the digit
+(MOTA 0.910 and 0.917, speed error 2.9% and 5.5%). The 17 robustness
+variants: 10 unchanged, red cloth 0.903 → 0.908 and side camera 0.807 →
+0.810, and five down by 0.001-0.002 (tan, 480p, screen-recorded, the TV ball
+set with 1 → 3 ID switches, cuts). Sample clips: `albin_fedor` still pots the
+5; `fedor_jump` now finds its 4 cushions, though its shot counts 3;
+`fedor_shot` 4 cushions and the pot of the 2.
+
+### 17.6 Afternoon: a ball in a pocket's jaws, a jump shot, and a 7 that became the 1
+
+Watching the app, the user found two things the answer keys had not:
+`albin_fedor`'s first shot jumps the cue ball over the 6 to pot the 4,
+which hung in the bottom-left corner pocket's jaws, and the 4 was never
+seen; and on the US Open clip balls were sometimes named wrongly.
+
+* **A ball hanging in the jaws — `BallDetector._balls_in_pockets`,
+  `detector.pocket_ball_p`.** A disc of 1.45 ball diameters round every
+  pocket is left out of the search, because the hole is a dark ball-sized
+  blob that never moves; the 4's centre was 0.54 in from the pocket's. Inside
+  each disc, out to the cushion noses, what is neither cloth nor as dark as
+  the hole (under 0.4 of the cloth's brightness) and covers 0.3-2.5 of a
+  ball's area is shown to the ball model, and kept if it is at least 0.98
+  sure: the six empty pockets read 0.000-0.016, the 4 1.000. A black ball in
+  the jaws stays unseen.
+* **A ball that vanishes in a pocket's mouth has dropped —
+  `MultiObjectTracker._drop_into_pocket`.** Followed into the jaws, a ball's
+  last sightings jitter as it drops; coasting on them, the ceiling camera's 1
+  rolled on along the rail, was given up as lost and its pot never reported.
+  It is now stopped where it was last seen and given up as potted after 3
+  unseen updates, not after the long wait a hidden ball earns.
+* **Pots dated to the last sighting** (`TrackingPipeline._confirmed_pots`):
+  the 4, seen last at frame 155, was given up at 223, after its shot had
+  closed at 178. And an event up to 1.5 s before a shot opened, after the one
+  before ended, now belongs to it and moves its start back
+  (`ShotSegmenter._shot_just_after`): the tripod's shot that potted the 9
+  opened 1.5 s late, and dated right, its pot fell before it.
+* **A ball passed over is not hit — `EventDetector._confirm_contacts`.** A
+  contact found by closest approach with a ball at rest is held for 0.3 s and
+  reported, at the frame it happened, once that ball has moved half a ball's
+  width or gone out of sight; if it is still there, it is dropped. The jump
+  over the 6 had read "hit the 6 first". The filters are told of the contact
+  either way (`EventDetector.contacts_now`).
+* **Stickier numbers — `balls.model_stickiness` 0.4 → 0.8.** The US Open's
+  7, which the model reads as part yellow (0.14-0.51), orange and maroon, and
+  as a stripe 0.29-0.91, became the 1 for 8 s (the 1 is not on the table in
+  that rack) and came back; the 9 became the 1 for a second. A longer average
+  of the model's answers (`_MODEL_ALPHA` 0.06 → 0.02) fixed that too but named
+  the tripod clip worse (56% right, 14% wrong) and was not kept.
+
+Measured (`real_eval.py`; "named otherwise": frames a ball tracked for 100
+frames or more shows a number other than its commonest):
+
+| | before (morning) | after |
+|---|---|---|
+| `albin_fedor` shot 1 | "hit the 6 first -- nothing potted" | "potted the 4" |
+| US Open named right / wrong; named otherwise | 87% / 1%; 0.9% of frames | 87% / 0%; 0% |
+| Ceiling camera | 1.000, 97% / 0% | 1.000, 98% / 0% |
+| Tripod | 0.924, 58% / 12%, pots right 3 of 3 | 0.924, 59% / 12%, 3 of 3 |
+| Premier League | 0.813, pots right 6 of 8 | 0.797, pots right 7 of 8 |
+| Synthetic collisions, false (break) | 2 | 1 |
+| Robustness contacts, false | — | fewer on 12 of 17 variants, none lost; MOTA and numbers unchanged but the TV set's (0.860 → 0.861) |
+
+The Premier League's loss is two phantoms after its dissolves (§17.4): a
+ghost 9 that one of them left, which had been given up as "potted" (a false
+pot, 1273) and now coasts as lost; the real pots of the 4 and the 1 are
+found instead.
+
+### 17.7 Not done
+
+* **Dissolves** still draw ghost balls and open the four extra Premier League
+  shots (17.4); **replays** are still tracked as play.
+* **The Premier League side view** whose frame cuts off both table ends
+  (frames 729-989, 17 of the key's 187 balls) is not tracked: no outline with
+  four corners, and the balls would have to place the table from the earlier
+  view.
+* **The ball model's colours**: the tripod's dark-blue 2 is read as black,
+  so the 8's role goes to it for half the clip; the US Open's light-blue 2 as
+  green. Both need training examples, not rules.
+* **The source clock** (17.2) can be tipped by a handful of matches.
+* **A black ball hanging in a pocket's jaws** (17.6) is as dark as the hole
+  and stays unseen; a ball found in the jaws is sometimes left unnumbered
+  (the Premier League's 4 was potted as "#17").

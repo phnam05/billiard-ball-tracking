@@ -253,16 +253,19 @@ where every ball is, which one it is, and what each stretch of the clip shows.
 `tools/real_eval.py` scores a run against them; the score is `1 - (missed +
 phantoms + extra ids) / balls`, like MOTA.
 
-| Clip | Score | Balls found | Drawn balls that are balls | Named right / wrong | Ids per ball |
-|---|---|---|---|---|---|
-| 2026 US Open, 3 min of highlights | **0.94** | 98% | 98% | 84% / 1% | 1.35 |
-| 2026 Premier League final, 1 min, four cameras | **0.79** | 88% | 96% | 91% / 0% | 1.9 |
-| Ceiling camera over a club table | **1.00** | 100% | 100% | 88% / 12% | 1.0 |
-| Tripod at the end of a room, amateur 8-ball | **0.74** | 82% | 95% | 50% / 18% | 1.4 |
+| Clip | Score | Balls found | Drawn balls that are balls | Named right / wrong | Ids per ball | Shots found (extra) |
+|---|---|---|---|---|---|---|
+| 2026 US Open, 3 min of highlights | **0.95** | 98% | 98% | 87% / 0% | 1.24 | not marked |
+| 2026 Premier League final, 1 min, four cameras | **0.80** | 88% | 96% | 91% / 0% | 1.8 | 8 of 8 (+4) |
+| Ceiling camera over a club table | **1.00** | 100% | 100% | 98% / 0% | 1.0 | 2 of 2 |
+| Tripod at the end of a room, amateur 8-ball | **0.92** | 100% | 96% | 59% / 12% | 1.4 | 3 of 3 |
 
 The same keys, earlier versions: the US Open 0 (nothing tracked) on the
 morning of 28 Sep, 0.35 after the other-venues work, 0.83 after the cut
-handling; the others 0.71 / 0.68 / 0.49 after the cut handling.
+handling, 0.94 that evening; the others 0.71 / 0.68 / 0.49 after the cut
+handling and 0.79 / 1.00 / 0.74 that evening. A shot is found if one is
+reported within 1.5 s of when it was struck; the Premier League's four extra
+shots all start in a dissolve between cameras.
 
 ```bash
 python tools/real_eval.py                 # needs the clips in .cache/
@@ -335,7 +338,7 @@ Or drive it frame by frame with `billiards.pipeline.build_pipeline` and
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q                  # all 167
+pytest -q                  # all 183
 pytest -q -m "not slow"    # unit tests only
 ```
 
@@ -365,14 +368,20 @@ whether it looks right. `--no-render` skips that when you only want numbers.
 - **Replays are tracked as if they were play** (the US Open's overhead
   replay), and a highlights reel's jumps in time are not recognised: balls
   that moved while the camera was away come back under new ids.
+- **A dissolve between two cameras** (half a second of both pictures at
+  once) still draws ghost balls, and can open a shot that did not happen: 4
+  on the Premier League minute.
+- **A view that cuts off both ends of the table** (a broadcast's side
+  camera) is not tracked.
+- **A black ball hanging in a pocket's jaws** is not seen: it is as dark as
+  the hole. Balls of other colours there are.
 - **Ball numbers depend on the colours the ball model has seen.** It reads
-  the US Open's light-blue 2 as green, and leaves it unnamed; a set whose
-  colours differ from both it knows (a ceiling camera's club set, with an
-  orange 7) gets a ball named wrongly. Small, far balls from a tripod are
-  named half the time.
+  the US Open's light-blue 2 as green, and leaves it unnamed, and a tripod
+  camera's dark-blue 2 as black, so that ball takes the 8's name for half the
+  clip. Small, far balls from a tripod are named about 60% of the time.
 - **Broadcasts and other venues** (`tools/venues.py`, below): the table is
   found at all 11 venues tried, and a ball keeps its id across a camera cut
-  (see `UPGRADE_NOTES.md` §15-16): 1.35-1.9 ids per ball on the answer keys.
+  (see `UPGRADE_NOTES.md` §15-17): 1.24-1.8 ids per ball on the answer keys.
 - **A camera at a corner of the table**, with the table small in the picture,
   tracks worst of the views tried (MOTA 0.57; see *Other footage* above).
 - **A faint cushion-nose line**, at low resolution or from a skewed view, can

@@ -257,7 +257,49 @@ def score(truth: Dict[str, Any], rows: Dict[int, List[dict]],
         out["processing_fps"] = summary.get("processing_fps")
     if truth.get("shots") is not None:
         out["shots_marked"] = len(truth["shots"])
+        if summary:
+            fps = float((summary.get("video") or {}).get("fps") or 30.0)
+            out.update(score_shots(truth["shots"], summary.get("shot_log") or [], fps))
     return out
+
+
+#: A reported shot is a marked one if it starts within this many seconds of it.
+SHOT_TOLERANCE_S = 1.5
+
+
+def score_shots(marked: Sequence[Dict[str, Any]], reported: Sequence[Dict[str, Any]],
+                fps: float) -> Dict[str, Any]:
+    """How the shot log compares with the shots marked on the key.
+
+    Reported and marked shots are paired by one assignment that keeps the
+    starts as close as possible, and a pair counts if they are within
+    ``SHOT_TOLERANCE_S``; matched in time order instead, a phantom shot
+    during a dissolve 1.4 s before a real one took its place.
+    **shots found** counts the marked shots matched, **extra** the reported
+    shots that match none (a shot split in two, a ball nudged by hand, a
+    replay), and **pots right** the matched shots whose balls potted, by
+    number, are the ones marked (a scratch is left out: the keys do not
+    mark the cue ball).  Two shots merged into one find only the first.
+    """
+    tol = SHOT_TOLERANCE_S * fps
+    pairs: List[Tuple[int, int]] = []
+    if marked and reported:
+        gap = np.abs(np.array([[float(r["start_frame"]) - float(m["frame"]) for r in reported] for m in marked]))
+        rows, cols = linear_sum_assignment(np.where(gap <= tol, gap, 1e9))
+        pairs = [(int(i), int(j)) for i, j in zip(rows, cols) if gap[i, j] <= tol]
+
+    def numbers(potted: Sequence[Any]) -> set:
+        return {int(p) for p in potted if str(p).isdigit()}
+
+    right = sum(1 for i, j in pairs
+                if numbers(reported[j].get("potted") or []) == numbers(marked[i].get("potted") or []))
+    offsets = [(int(reported[j]["start_frame"]) - int(marked[i]["frame"])) / fps for i, j in pairs]
+    return {
+        "shots_found": len(pairs),
+        "shots_extra": len(reported) - len(pairs),
+        "pots_right": right,
+        "shot_start_offset_s": round(float(np.median(offsets)), 2) if offsets else None,
+    }
 
 
 def measure(truth: Dict[str, Any], code_root: Path = ROOT, out_dir: Path = OUT,
@@ -274,15 +316,26 @@ def print_table(results: Sequence[Dict[str, Any]]) -> None:
     def pct(v: Optional[float]) -> str:
         return "   -" if v is None else f"{100 * v:4.0f}"
 
+    def shots(r: Dict[str, Any]) -> str:
+        if r.get("shots_found") is None:
+            return str(r.get("shots", "-"))
+        return f"{r['shots_found']}/{r['shots_marked']} +{r['shots_extra']}"
+
+    def pots(r: Dict[str, Any]) -> str:
+        return "-" if r.get("pots_right") is None else str(r["pots_right"])
+
     print(f"\n{'clip':16s} {'score':>6s} {'found':>5s} {'real':>5s} {'named':>5s} {'wrong':>5s} "
-          f"{'ids/ball':>8s} {'swaps':>5s} {'phant':>5s} {'paused':>6s} {'off-play':>8s} {'shots':>5s} {'fps':>5s}")
+          f"{'ids/ball':>8s} {'swaps':>5s} {'phant':>5s} {'paused':>6s} {'off-play':>8s} {'shots':>9s} "
+          f"{'pots':>4s} {'fps':>5s}")
     for r in results:
         off = max(r["off_play"].values()) if r["off_play"] else 0.0
         print(f"{r['name']:16s} {r['score']:6.3f} {pct(r['found']):>5s} {pct(r['real']):>5s} "
               f"{pct(r['named_right']):>5s} {pct(r['named_wrong']):>5s} {r['ids_per_ball'] or 0:8.2f} "
               f"{r['swaps']:5d} {r['phantoms_per_keyframe']:5.2f} {pct(r['paused']):>6s} {pct(off):>8s} "
-              f"{r.get('shots', '-'):>5} {r.get('processing_fps') or 0:5.1f}")
+              f"{shots(r):>9s} {pots(r):>4s} {r.get('processing_fps') or 0:5.1f}")
     print("found/real/named/wrong/paused/off-play in %; off-play is the worst of replay/close-up/crowd/titles")
+    print("shots: marked shots found / marked, + reported shots matching none; "
+          f"pots: found shots whose pots are right (within {SHOT_TOLERANCE_S:g} s of a marked shot)")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

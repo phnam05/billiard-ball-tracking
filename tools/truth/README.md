@@ -52,4 +52,7 @@ The clips themselves are not committed (`.cache/`, `billiards-workspace/`);
   coasting), or held off the table by the referee.
 * **`match_px`**: a reported ball within this many pixels of a marked one is
   that ball (about two thirds of a ball's diameter in the picture).
-* **`shots`** (optional): the frame each shot is struck, and the balls potted.
+* **`shots`** (optional): the frame each shot is struck, and the balls potted
+  (by number; the cue ball is left out). A shot already rolling when the clip
+  starts is marked at frame 0. `real_eval.py` matches a reported shot to a
+  marked one if it starts within 1.5 s of it.

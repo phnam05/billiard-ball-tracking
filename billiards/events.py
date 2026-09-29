@@ -30,6 +30,24 @@ from .track import Track, TrackState
 #: it was struck.  The filter starts with a wide velocity prior by design.
 _MIN_AGE_FOR_STRUCK = 8
 
+#: A ball at rest seen next more than a ball's width away, within this many
+#: seconds and trail samples (``EventDetector._jump_speed``), went at that
+#: step's speed: longer, and it may have been carried there by hand.
+_JUMP_WINDOW_S = 0.15
+_JUMP_MAX_SAMPLES = 4
+
+#: A contact with a ball at rest is reported once that ball has gone this
+#: many ball diameters, and dropped if it has not within this many seconds
+#: and is still in sight (``EventDetector._confirm_contacts``).
+_CONTACT_MOVE_DIAMETERS = 0.5
+_CONTACT_CONFIRM_S = 0.3
+
+#: Balls set moving on the same frame farther apart than this, in ball
+#: diameters, with nothing else moving, were not struck
+#: (``EventDetector._picture_moved``): a ball frozen to the cue ball is set
+#: off with it, within a diameter.
+_TOGETHER_BALL_DIAMETERS = 3.0
+
 #: Seconds after the table comes back from a cut in which no ball is called
 #: struck (see ``EventDetector.forget``): long enough for a ball picked up
 #: mid-roll to have its speed measured.
@@ -217,6 +235,14 @@ class EventDetector:
         self.sampled_events = True
         #: Scene time until which no ball is called struck (``forget``).
         self._quiet_until = -np.inf
+        #: Frames on which balls seemed struck together (``_picture_moved``).
+        self.picture_moves = 0
+        #: Contacts with a ball at rest, held until it moves
+        #: (``_confirm_contacts``): (event, that ball, where it was, deadline).
+        self._held: List[Tuple[Event, int, np.ndarray, float]] = []
+        #: Pairs of balls in contact on this step, reported or held: the
+        #: filters are told either way (``TrackingPipeline.process``).
+        self.contacts_now: List[Tuple[int, ...]] = []
 
     @property
     def _struck_speed(self) -> float:
@@ -253,9 +279,18 @@ class EventDetector:
         new: List[Event] = []
         if self.kink_events:
             new.extend(self._kink_events(confirmed))
+        self.contacts_now = []
         if self.sampled_events:
             new.extend(self._collisions(confirmed, frame, t_s, dt))
-        new.extend(self._balls_struck(confirmed, frame, t_s))
+        new.extend(self._confirm_contacts(confirmed))
+        struck = self._balls_struck(confirmed, frame, t_s)
+        if self._picture_moved(struck, confirmed):
+            # Not play: see ``_picture_moved``.  Nothing struck, and no
+            # contact between balls that only seemed to move.
+            self.picture_moves += 1
+            new = [e for e in new if e.type is not EventType.COLLISION]
+        else:
+            new.extend(struck)
 
         for track in confirmed:
             self._prev_velocity[track.track_id] = track.velocity.copy()
@@ -279,6 +314,7 @@ class EventDetector:
         self._observed.clear()
         self._last_kink_t.clear()
         self._pending.clear()
+        self._held.clear()
         self._rail_state.clear()
         self._quiet_until = self._t_scene + _QUIET_AFTER_CUT_S
 
@@ -689,21 +725,103 @@ class EventDetector:
                 # by now they have bounced apart.
                 mid = (qa + s * (pa - qa) + qb + s * (pb - qb)) / 2.0
                 img = self.table.ball_table_to_image([tuple(mid)])[0]
-                out.append(
-                    Event(
-                        type=EventType.COLLISION,
-                        frame=frame,
-                        t_s=t_s,
-                        table_xy=(float(mid[0]), float(mid[1])),
-                        image_xy=(float(img[0]), float(img[1])),
-                        track_ids=(a.track_id, b.track_id),
-                        detail={
-                            "separation_in": dist,
-                            "closing_speed_in_s": closing,
-                        },
-                    )
+                event = Event(
+                    type=EventType.COLLISION,
+                    frame=frame,
+                    t_s=t_s,
+                    table_xy=(float(mid[0]), float(mid[1])),
+                    image_xy=(float(img[0]), float(img[1])),
+                    track_ids=(a.track_id, b.track_id),
+                    detail={
+                        "separation_in": dist,
+                        "closing_speed_in_s": closing,
+                    },
                 )
+                self.contacts_now.append(event.track_ids)
+                still = [t for t, q in ((a, qa), (b, qb)) if self._was_at_rest(t)]
+                if len(still) == 1:
+                    q = qa if still[0] is a else qb
+                    self._held.append((event, still[0].track_id, q.copy(), self._t_scene + _CONTACT_CONFIRM_S))
+                else:
+                    out.append(event)
         return out
+
+    def _was_at_rest(self, track: Track) -> bool:
+        v = self._prev_velocity.get(track.track_id)
+        return v is not None and float(np.linalg.norm(v)) < self._rest_speed
+
+    def _confirm_contacts(self, confirmed: Sequence[Track]) -> List[Event]:
+        """Contacts with a ball at rest, once that ball has moved.
+
+        A ball hit from rest moves.  One that sits where it was was not hit:
+        the cue ball jumped over it -- ``albin_fedor``'s first shot, a jump
+        over the 6 to pot the 4, was reported as "hit the 6 first" -- or
+        passed it closer on the screen than on the table.  Held for
+        ``_CONTACT_CONFIRM_S``, the contact is reported, at the frame it
+        happened, once the ball has gone half a ball's width, or if by then
+        it is out of sight (in the pocket, or behind the other); and dropped
+        if it is still there.
+        """
+        if not self._held:
+            return []
+        by_id = {t.track_id: t for t in confirmed}
+        limit = _CONTACT_MOVE_DIAMETERS * self.table.ball_diameter_in
+        out: List[Event] = []
+        keep = []
+        for event, tid, was, deadline in self._held:
+            track = by_id.get(tid)
+            if track is not None and float(np.linalg.norm(track.kf.position - was)) >= limit:
+                out.append(event)
+            elif self._t_scene >= deadline:
+                if track is None or track.time_since_update > 0:
+                    out.append(event)
+            else:
+                keep.append((event, tid, was, deadline))
+        self._held = keep
+        return out
+
+    def _picture_moved(self, struck: Sequence[Event], confirmed: Sequence[Track]) -> bool:
+        """Whether balls "struck" together are the picture moving, not play.
+
+        One stroke of the cue sets one ball moving, and it sets the others
+        moving by hitting them.  So two balls at rest, far apart, that start
+        moving on the same frame while nothing else is moving were not
+        struck: the camera moved, or the broadcast is dissolving to another
+        camera and the table fitted to the first no longer fits.  On the
+        2026 Premier League final every one of its seven dissolves did that,
+        three to eight balls at once, and opened a shot; one "potted" the 9.
+        """
+        if len(struck) < 2:
+            return False
+        ids = {tid for e in struck for tid in e.track_ids}
+        if any(
+            t.track_id not in ids and t.age >= _MIN_AGE_FOR_STRUCK
+            and self._motion_state.get(t.track_id) == "moving"
+            for t in confirmed
+        ):
+            return False
+        pts = np.array([e.table_xy for e in struck], dtype=np.float64)
+        spread = float(np.max(np.linalg.norm(pts[:, None] - pts[None], axis=2)))
+        return spread > _TOGETHER_BALL_DIAMETERS * self.table.ball_diameter_in
+
+    def _jump_speed(self, track: Track) -> float:
+        """How fast the ball went between its last two sightings, if it was
+        just seen more than a ball's width from the one before, within
+        ``_JUMP_WINDOW_S``; else 0."""
+        trail = track.trail
+        if len(trail) < 2 or not trail[-1].observed:
+            return 0.0
+        now = trail[-1]
+        for k in range(2, min(len(trail), _JUMP_MAX_SAMPLES + 1) + 1):
+            before = trail[-k]
+            if not before.observed:
+                continue
+            dt = now.t_s - before.t_s
+            if dt <= 0 or dt > _JUMP_WINDOW_S:
+                return 0.0
+            step = float(np.hypot(now.table_xy[0] - before.table_xy[0], now.table_xy[1] - before.table_xy[1]))
+            return step / dt if step >= self.table.ball_diameter_in else 0.0
+        return 0.0
 
     def _balls_struck(
         self, tracks: Sequence[Track], frame: int, t_s: float
@@ -746,6 +864,12 @@ class EventDetector:
                     self._motion_state[track.track_id] = "rest"
                 continue
 
+            if speed <= struck_speed:
+                # Struck and into another ball between two sightings, the
+                # ball's filtered speed can stay under the threshold: on the
+                # tripod answer key the cue ball jumped 69 px in two frames,
+                # hidden by the cue for one, and read 22 in/s.
+                speed = max(speed, self._jump_speed(track))
             if speed <= struck_speed or track.age < _MIN_AGE_FOR_STRUCK:
                 continue
             if self._t_scene < self._quiet_until:

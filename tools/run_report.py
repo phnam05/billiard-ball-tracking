@@ -77,12 +77,13 @@ SAMPLE_CLIPS: Dict[str, Dict[str, Any]] = {
         "video": "albin_fedor.mp4",
         "balls_visible": 7,
         "real_pots": 2,
-        "detectable_pots": 1,
+        "detectable_pots": 2,
         "notes": "Two pots, checked frame by frame. (1) The pink 4-ball sits "
-                 "in the near-left pocket jaws from the start and the cue ball "
-                 "knocks it in at about frame 155; it is inside the pocket-"
-                 "exclusion zone, so it is never tracked and this pot cannot "
-                 "be reported. (2) The purple 5-ball is struck at about frame "
+                 "in the near-left pocket jaws from the start and the cue ball, "
+                 "jumped over the 6, knocks it in at about frame 155; it is "
+                 "inside the pocket-exclusion zone, and until 29 Sep 2026 was "
+                 "never tracked (now found there with the ball model, "
+                 "detect._balls_in_pockets). (2) The purple 5-ball is struck at about frame "
                  "555 and drops into the far-left corner at frame 566-568; "
                  "this one is fully visible and should be reported. The rack "
                  "graphic lags both: it drops the 4 somewhere between frames "

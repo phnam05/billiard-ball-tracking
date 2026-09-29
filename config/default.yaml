@@ -62,6 +62,7 @@ detector:
   pocket_exclusion_ball_diameters: 1.45
   search_raised_bed: true
   raised_band_outside_fraction: 0.55
+  raised_band_start_p: 0.98
   split_peak_min_ratio: 0.55
   split_peak_max_ratio: 1.75
   cluster_core_coverage_min: 0.85
@@ -71,6 +72,7 @@ detector:
   max_detections: 40
   ball_model: auto
   ball_model_reject: 0.3
+  pocket_ball_p: 0.98
   ball_model_rescue: 0.9
 tracker:
   max_speed_in_s: 700.0
@@ -115,7 +117,7 @@ balls:
   stickiness: 0.6
   min_colour_samples: 4
   model_max_cost: 2.3
-  model_stickiness: 0.4
+  model_stickiness: 0.8
 render:
   draw_trajectories: true
   draw_ids: true

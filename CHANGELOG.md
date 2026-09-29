@@ -3,6 +3,60 @@
 What changed, newest first. The reasons behind each
 change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## 2026-09-29
+
+### Fixed (afternoon): a ball in a pocket's jaws, jump shots, and stickier numbers
+
+- **A ball hanging in a pocket's jaws is found**: inside the disc blanked out
+  round each pocket, something neither cloth nor as dark as the hole is a
+  ball if the ball model is at least 0.98 sure (`detector.pocket_ball_p`).
+  `albin_fedor`'s 4, potted by the first shot, was never seen.
+- **A ball that vanishes in a pocket's mouth is potted there**, not coasted
+  on along the rail; **pots are dated to the ball's last sighting**; an event
+  just before a shot that was noticed late belongs to it.
+- **A ball passed over is not hit**: a contact with a ball at rest is
+  reported only once that ball moves (or drops); the jump over the 6 had read
+  "hit the 6 first".
+- **A ball's number is harder to take away** (`balls.model_stickiness` 0.4 →
+  0.8): the US Open's 7 had turned into the 1 for 8 s.
+- Measured: `albin_fedor` "potted the 4"; US Open named wrong 1% → 0%;
+  Premier League 0.813 → 0.797 (two phantoms after dissolves), its pots right
+  6 → 7 of 8; false contacts down on the synthetic break and 12 robustness
+  variants. Tests: 183.
+
+### Fixed: a ball on the far cushion, numbers after a pot, and the shot log
+
+- **A ball resting against the far cushion from the start is tracked** when
+  the ball model is at least 0.98 sure it is a ball
+  (`detector.raised_band_start_p`). Past the bed's far edge a detection used
+  only to follow a ball already tracked; the tripod answer key's 1 was
+  missed on 12 of its 16 keyframes.
+- **A detection on a ball at rest is that ball**, whatever its colour, if it
+  is within half a ball of it: two balls cannot overlap. A ball touching
+  another, split out of their blob, had started a second track on top of it.
+- **A potted ball's number is held until a new rack**, which shows itself by
+  more balls on the table than can be left of this one. Freed at once (28
+  Sep), a look-alike took it: the tripod's far 1 became the potted 9.
+- **Shots end after 0.4 s of play at rest, not 0.4 s of the file's frames**
+  (on a broadcast that repeats every other frame that was 0.8 s, and shots
+  merged); **a ball trembling in place is not moving**, and **a shot in which
+  no ball went two ball widths, and nothing was potted, is dropped** (a rack,
+  split a pixel off each frame, opened shots before the break).
+- **A strike between two sightings is caught**: a ball at rest seen next
+  more than a ball's width away within 0.15 s is taken at that speed.
+- **Balls far apart setting off together, with nothing moving, are not
+  struck**: that is the picture changing (a dissolve to another camera), not
+  play. It removed a phantom pot on the Premier League minute.
+- **`tools/real_eval.py` scores the shot log**: shots found (within 1.5 s),
+  extra, and pots right, against each key's shots. The Premier League key
+  lists a shot already rolling at frame 0.
+- Measured: answer keys US Open 0.941 → 0.952, Premier League 0.791 → 0.813,
+  ceiling camera 1.000, tripod 0.742 → 0.924; named wrong on the two
+  CCTV-style clips 12% → 0% and 18% → 12%; shots found 3/8 → 8/8 (Premier
+  League), 2/3 → 3/3 (tripod), ceiling camera's 3 extra → 0. Synthetic breaks
+  unchanged. Still: dissolves open 4 extra shots, replays are tracked, the
+  side view is not. Tests: 178.
+
 ## 2026-09-28
 
 ### Added (evening): answer keys for real footage, and a learned ball check
