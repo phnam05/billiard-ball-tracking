@@ -10,7 +10,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 🧭 Where the project stands
 
-*Last updated: **29 Sep 2026***
+*Last updated: **30 Sep 2026***
 
 | Area | Status | Notes |
 |---|:---:|---|
@@ -28,7 +28,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | Collisions | ⚠️ | 5 of 6 on synthetic, 2 false |
 | Ball speeds | ✅ | 2.9% median error (5.5% screen-recorded) |
 | Tests | ✅ | 183 pass |
-| On GitHub | ⚠️ | Up to `7b8d236` (28 Sep evening); 29 Sep's work committed locally as `60a0b52`, not pushed (no GitHub at the office) |
+| On GitHub | ✅ | Everything to 29 Sep pushed on 30 Sep, from home (`1766fb4`) |
 
 **Key numbers** (`reports/run-log.json`, 29 Sep 14:21)
 
@@ -58,7 +58,8 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
 | **28 Sep 2026** | YouTube links; other venues; balls kept through cuts; answer keys; a learned ball check | Paste a link, track the minutes picked; the table found at 11 venues; `python main.py` opens the app; scored on 4 real clips: 0.74–1.00 (the US Open 0.35 → 0.94) |
-| **29 Sep 2026** | Far-cushion balls; numbers held after a pot; the shot log measured and fixed; your two reports (a ball in the jaws, US Open labels); the history written up as `STORY.md` | Real clips 0.80–1.00; all 13 marked shots found (7 before); synthetic unchanged; committed locally, not pushed |
+| **29 Sep 2026** | Far-cushion balls; numbers held after a pot; the shot log measured and fixed; your two reports (a ball in the jaws, US Open labels); the history written up as `STORY.md` | Real clips 0.80–1.00; all 13 marked shots found (7 before); synthetic unchanged; committed, pushed 30 Sep |
+| **30 Sep 2026** | 29 Sep's work pushed from home | GitHub up to date; no code change |
 
 ---
 
@@ -263,7 +264,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 
 ## 📅 29 Sep 2026: The far cushion, numbers after a pot, the shot log, a ball in the jaws
 
-*Work computer, scratch venv. Carried on from 28 Sep evening ("the whole app's tracking better"). The laptop slept overnight mid-run (a 3-minute test run took 8.5 h). Committed locally as `60a0b52`, not pushed (no GitHub at the office).*
+*Work computer, scratch venv. Carried on from 28 Sep evening ("the whole app's tracking better"). The laptop slept overnight mid-run (a 3-minute test run took 8.5 h). Committed as `60a0b52`, `6d00fcc`, `1766fb4`; no GitHub at the office, so pushed from home on 30 Sep.*
 
 ### State at the end of the day
 
@@ -277,7 +278,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | ⚠️ Open | Dissolves: 4 extra PL shots, ghost balls · replays tracked · side view untracked · model reads dark-blue 2 as black, light-blue 2 as green (simulated blues didn't help) |
 | ✅ Tests | 183 pass (16 new) |
 | ✅ Docs | `STORY.md`: the whole history, told as a story |
-| ⚠️ Not pushed | `60a0b52` committed locally; push from a network that reaches GitHub |
+| ✅ On GitHub | Pushed 30 Sep from home (`1766fb4`) |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
 |---|---|---|---|
@@ -298,6 +299,23 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 15 | Model reads light-blue 2 green, navy 2 black | Retrained with ⅓ of the simulated 2s sky blue, ⅓ navy (❌ each seed broke a different real track: a blue read black, maroon read pink) → reverted | Held-out colours 0.953 → 0.90; PL named wrong 0 → 7%, US Open 0.952 → 0.923; model unchanged |
 | 16 | You: are the US Open results right? | 🔍 You watched it (tracked with `60a0b52`'s code); no code change | "Seems good"; more of your own footage to come |
 | 17 | You: "so lost on this project" | `STORY.md`: the history as a story, v1 to today, with its pictures and which chapter made which file | Docs only; code and `results/` unchanged |
+
+---
+
+## 📅 30 Sep 2026: On GitHub
+
+*At home. No code change.*
+
+### State at the end of the day
+
+| | |
+|---|---|
+| ✅ On GitHub | All of 29 Sep pushed; nothing left only on the work laptop |
+| ⚠️ Open | As on 29 Sep: dissolves, replays, blue 2s, the side view |
+
+| # | 🧩 Problem | 🔧 Fix | 📈 Result |
+|---|---|---|---|
+| 1 | 29 Sep's 3 commits only on the work laptop | Pushed from home (❌ first try: HTTP 408 timeout on a 217 KB push → retried) | GitHub at `1766fb4`, same as the laptop |
 
 ---
 
