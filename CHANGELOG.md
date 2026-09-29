@@ -5,6 +5,13 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-29
 
+### Added (evening): `STORY.md`
+
+- The project's history as a story to read, from Stuart Grieve's 2015 table
+  warp and the 2024 class project to today: what each day found and fixed,
+  with the repo's screenshots, a then-and-now table, and which chapter made
+  which file. Docs only; code and `results/` unchanged.
+
 ### Tried, not kept (evening): simulated light-blue and navy 2s for the ball model
 
 - The ball model trained again with a third of the simulator's 2s and 10s sky

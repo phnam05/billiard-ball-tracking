@@ -58,7 +58,7 @@ list of changes in [`CHANGELOG.md`](CHANGELOG.md).
 | **26 Sep 2026** | The app, live mode, robustness matrix | Works in a browser; tested on 14 kinds of footage |
 | **27 Sep 2026** | App made easier to follow | One next step per video, a guide at the top |
 | **28 Sep 2026** | YouTube links; other venues; balls kept through cuts; answer keys; a learned ball check | Paste a link, track the minutes picked; the table found at 11 venues; `python main.py` opens the app; scored on 4 real clips: 0.74–1.00 (the US Open 0.35 → 0.94) |
-| **29 Sep 2026** | Far-cushion balls; numbers held after a pot; the shot log measured and fixed; your two reports (a ball in the jaws, US Open labels) | Real clips 0.80–1.00; all 13 marked shots found (7 before); synthetic unchanged; committed locally, not pushed |
+| **29 Sep 2026** | Far-cushion balls; numbers held after a pot; the shot log measured and fixed; your two reports (a ball in the jaws, US Open labels); the history written up as `STORY.md` | Real clips 0.80–1.00; all 13 marked shots found (7 before); synthetic unchanged; committed locally, not pushed |
 
 ---
 
@@ -276,6 +276,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | ✅ Synthetic | Unchanged: MOTA 0.910 / 0.917, speed error 2.9% / 5.5%; robustness 10 same, 2 up, 5 down ≤ 0.002 |
 | ⚠️ Open | Dissolves: 4 extra PL shots, ghost balls · replays tracked · side view untracked · model reads dark-blue 2 as black, light-blue 2 as green (simulated blues didn't help) |
 | ✅ Tests | 183 pass (16 new) |
+| ✅ Docs | `STORY.md`: the whole history, told as a story |
 | ⚠️ Not pushed | `60a0b52` committed locally; push from a network that reaches GitHub |
 
 | # | 🧩 Problem | 🔧 Fix | 📈 Result |
@@ -296,6 +297,7 @@ ball renumbered at the pocket · 3 phantom tracks on `albin_fedor`.
 | 14 | Checks | 183 tests; `run_report --ground-truth --real` 14:21; robustness 14:34 (MOTA as at 10:26, TV set +0.001); app restarted, your 4 videos re-tracked | PL 0.813 → 0.797 (2 phantoms after dissolves), pots right 6 → 7 of 8; synthetic unchanged |
 | 15 | Model reads light-blue 2 green, navy 2 black | Retrained with ⅓ of the simulated 2s sky blue, ⅓ navy (❌ each seed broke a different real track: a blue read black, maroon read pink) → reverted | Held-out colours 0.953 → 0.90; PL named wrong 0 → 7%, US Open 0.952 → 0.923; model unchanged |
 | 16 | You: are the US Open results right? | 🔍 You watched it (tracked with `60a0b52`'s code); no code change | "Seems good"; more of your own footage to come |
+| 17 | You: "so lost on this project" | `STORY.md`: the history as a story, v1 to today, with its pictures and which chapter made which file | Docs only; code and `results/` unchanged |
 
 ---
 
