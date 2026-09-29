@@ -1599,3 +1599,27 @@ found instead.
 * **A black ball hanging in a pocket's jaws** (17.6) is as dark as the hole
   and stays unseen; a ball found in the jaws is sometimes left unnumbered
   (the Premier League's 4 was potted as "#17").
+
+### 17.8 Evening: simulated light-blue and navy 2s for the ball model (not kept)
+
+The simulator's 2 and 10 were one royal blue. Its crops were made again with
+a third of them sky blue (BGR 205/150/60) and a third navy (68/34/13), shades
+chosen from ball sets, not sampled from the keys' clips, and the model trained
+again as before (30 epochs). Training is deterministic: the old data with
+seed 0 gives the shipped `ballnet.onnx` byte for byte.
+
+| | shipped | 3 blues, seed 0 | 3 blues, seed 1 |
+|---|---|---|---|
+| Held-out real crops, family right | 0.953 | 0.896 (a derby-city blue read black, 111 crops) | 0.901 (maroon read pink 63, black purple 25; hanoi-open 0 of 64) |
+| Tripod: score, named right / wrong | 0.924, 59 / 12% | 0.909, 65 / 6% | not run |
+| Ceiling camera | 1.000, 98 / 0% | 1.000, 97 / 0% | not run |
+| Premier League | 0.797, 91 / 0% | 0.818, **80 / 7%** | not run |
+| US Open | 0.952, 87 / 0% | **0.923**, 91 / 1% | not run |
+
+Flat-shaded simulated balls widened "blue" and made the model less stable on
+real footage: each seed broke a different real track, and a wrong number is
+worse than none. The change was reverted; `ballnet.onnx` is unchanged. The
+old data with seed 1 was not trained, so how lucky seed 0 was is not known.
+What should work instead: real crops of light-blue and navy 2s from clips
+that are not answer keys (another US Open match; a CCTV table with that set),
+labelled by eye like the rest of `tools/ballnet/real.csv`.

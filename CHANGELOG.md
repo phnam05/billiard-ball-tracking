@@ -5,6 +5,14 @@ change, with the measurements, are in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
 ## 2026-09-29
 
+### Tried, not kept (evening): simulated light-blue and navy 2s for the ball model
+
+- The ball model trained again with a third of the simulator's 2s and 10s sky
+  blue and a third navy. Held-out real colours 0.953 → 0.90 (two seeds);
+  Premier League named wrong 0% → 7%, US Open 0.952 → 0.923. Reverted;
+  `ballnet.onnx` unchanged, so `results/` was not regenerated. Details:
+  `UPGRADE_NOTES.md` §17.8.
+
 ### Fixed (afternoon): a ball in a pocket's jaws, jump shots, and stickier numbers
 
 - **A ball hanging in a pocket's jaws is found**: inside the disc blanked out
